@@ -1,4 +1,10 @@
-"""Backtest report — collects results and serialises to JSON."""
+"""Paper trading report.
+
+Collects paper trading results and serialises to JSON.
+No metrics (unlike BacktestReport) — paper mode is forward-only, not evaluated.
+
+No Zerodha imports. No real orders.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +15,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from trading_engine.backtest.metrics import BacktestMetrics
 from trading_engine.domain.models import RiskDecision, TradeFill
 
 
@@ -23,20 +28,20 @@ def _json_default(obj: Any) -> Any:
 
 
 @dataclass
-class BacktestReport:
-    """Full results of a completed backtest run.
+class PaperTradingReport:
+    """Full results of a paper trading run.
 
     Fields:
-        strategy_id:  Identifier of the strategy that was run.
-        symbols:      List of symbols traded.
-        start_time:   First bar timestamp.
-        end_time:     Last bar timestamp.
-        initial_cash: Starting portfolio cash.
-        final_equity: Ending portfolio equity.
-        metrics:      BacktestMetrics summary.
-        fills:        All TradeFill objects recorded.
-        equity_curve: List of (timestamp, equity) pairs.
-        parameters:   Arbitrary strategy / run parameters for reproducibility.
+        strategy_id:              Identifier of the strategy that was run.
+        symbols:                  List of symbols traded.
+        start_time:               First bar timestamp.
+        end_time:                 Last bar timestamp.
+        initial_cash:             Starting portfolio cash.
+        final_equity:             Ending portfolio equity.
+        fills:                    All TradeFill objects recorded.
+        rejected_risk_decisions:  RiskDecisions that blocked order intents.
+        equity_curve:             List of (timestamp, equity) pairs.
+        parameters:               Arbitrary strategy / run parameters.
     """
 
     strategy_id: str
@@ -45,11 +50,10 @@ class BacktestReport:
     end_time: datetime | None
     initial_cash: Decimal
     final_equity: Decimal
-    metrics: BacktestMetrics
     fills: list[TradeFill] = field(default_factory=list)
+    rejected_risk_decisions: list[RiskDecision] = field(default_factory=list)
     equity_curve: list[tuple[datetime, Decimal]] = field(default_factory=list)
     parameters: dict[str, Any] = field(default_factory=dict)
-    rejected_risk_decisions: list[RiskDecision] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dict representation."""
@@ -60,22 +64,6 @@ class BacktestReport:
             "end_time": self.end_time.isoformat() if self.end_time else None,
             "initial_cash": str(self.initial_cash),
             "final_equity": str(self.final_equity),
-            "metrics": {
-                "total_return": str(self.metrics.total_return),
-                "total_pnl": str(self.metrics.total_pnl),
-                "realized_pnl": str(self.metrics.realized_pnl),
-                "unrealized_pnl": str(self.metrics.unrealized_pnl),
-                "max_drawdown": str(self.metrics.max_drawdown),
-                "win_rate": str(self.metrics.win_rate),
-                "profit_factor": str(self.metrics.profit_factor),
-                "trade_count": self.metrics.trade_count,
-                "winning_trades": self.metrics.winning_trades,
-                "losing_trades": self.metrics.losing_trades,
-                "average_win": str(self.metrics.average_win),
-                "average_loss": str(self.metrics.average_loss),
-                "expectancy": str(self.metrics.expectancy),
-                "total_fees": str(self.metrics.total_fees),
-            },
             "fills": [
                 {
                     "fill_id": f.fill_id,
@@ -88,10 +76,6 @@ class BacktestReport:
                 }
                 for f in self.fills
             ],
-            "equity_curve": [
-                {"timestamp": ts.isoformat(), "equity": str(eq)} for ts, eq in self.equity_curve
-            ],
-            "parameters": self.parameters,
             "rejected_risk_decisions": [
                 {
                     "risk_decision_id": d.risk_decision_id,
@@ -102,6 +86,10 @@ class BacktestReport:
                 }
                 for d in self.rejected_risk_decisions
             ],
+            "equity_curve": [
+                {"timestamp": ts.isoformat(), "equity": str(eq)} for ts, eq in self.equity_curve
+            ],
+            "parameters": self.parameters,
         }
 
     def save_json(self, path: str | Path) -> None:

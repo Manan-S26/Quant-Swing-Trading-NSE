@@ -22,6 +22,103 @@ A personal Zerodha-connected Indian equity intraday trading engine.
 
 ## Current milestone
 
+**Milestone 8 — Paper Trading Engine v1** (complete)
+
+Added a complete paper trading engine that simulates strategy execution against
+pre-loaded bar data. No Zerodha WebSocket. No real order placement. No credentials.
+
+**What was added:**
+
+| Component | Location | Description |
+|---|---|---|
+| `PaperMarketFeed` | `paper/market_feed.py` | Yields bars from `list[Bar]` or DataFrame, globally time-sorted |
+| `PaperPortfolio` | `paper/portfolio.py` | Subclass of `BacktestPortfolio`; tracks cash, positions, P&L |
+| `PaperExecutionBroker` | `paper/broker.py` | Fills MARKET / LIMIT orders against synthetic bars |
+| `PaperTradingReport` | `paper/report.py` | JSON-serialisable report (no metrics — forward-only mode) |
+| `PaperTradingEngine` | `paper/engine.py` | Main loop: feed → strategy → risk → broker → report |
+| `events.py` | `paper/events.py` | Frozen event dataclasses for paper mode |
+
+**Difference between backtesting and paper mode:**
+
+| | Backtest | Paper |
+|---|---|---|
+| Data source | `HistoricalDataFeed` (DataFrame) | `PaperMarketFeed` (Bar list or DataFrame) |
+| Portfolio | `BacktestPortfolio` | `PaperPortfolio` (subclass) |
+| Execution | `SimulatedBroker` | `PaperExecutionBroker` |
+| Report | `BacktestReport` (with metrics) | `PaperTradingReport` (no metrics) |
+| Intended use | Historical evaluation | Forward simulation |
+
+**How paper mode stays safe:**
+
+- No Zerodha SDK is imported anywhere in `src/trading_engine/paper/`.
+- No real order placement — `PaperExecutionBroker` fills against synthetic bars only.
+- No credentials required — runs fully offline.
+- No Zerodha WebSocket — bar delivery is synchronous from pre-loaded data.
+- Live order placement still blocked by `LiveTradingDisabledError` in `broker/paper.py`.
+
+**Naming clarity:**
+
+- `broker/paper.py` — `PaperBroker`: the Broker-interface stub (connection lifecycle only, no fills).
+- `paper/broker.py` — `PaperExecutionBroker`: the execution simulator (fills orders).
+
+```bash
+# Run all tests (606 total, all pass)
+python3 -m pytest -v
+
+# Style checks
+python3 -m ruff check src tests scripts
+python3 -m ruff format --check src tests scripts
+
+# Optional: run ORB in paper mode using local Parquet data
+# (exits cleanly if no local data exists)
+python3 scripts/run_paper_orb.py
+```
+
+---
+
+**Milestone 7 — Risk Engine v1** (complete)
+
+Added a configurable pre-trade risk engine that sits between strategy `OrderIntent` output and `SimulatedBroker` execution. No Zerodha imports. Reusable across backtest, paper, and live modes.
+
+**What the risk engine checks (first failing check wins):**
+
+1. Kill switch active
+2. Symbol not in `allowed_symbols`
+3. Product type not in `allowed_product_types`
+4. Order type not in `allowed_order_types`
+5. Order value > `max_order_value`
+6. Open position count ≥ `max_open_positions` (new symbol BUY only)
+7. Daily loss > `max_daily_loss` (realized + unrealized)
+8. Trades today ≥ `max_trades_per_day`
+9. Orders this second ≥ `max_orders_per_second`
+10. Approved
+
+**Key components:**
+
+| Class | Location | Description |
+|---|---|---|
+| `RiskLimits` | `risk/limits.py` | Dataclass with all threshold parameters |
+| `KillSwitch` | `risk/kill_switch.py` | Emergency stop; blocks all orders when active |
+| `RiskEngine` | `risk/engine.py` | Evaluates `OrderIntent` against `RiskLimits` |
+
+**BacktestEngine integration:**
+
+- `BacktestEngine` now accepts optional `risk_engine: RiskEngine | None = None`
+- When provided, every `OrderIntent` passes through `risk_engine.check_order_intent()` before reaching `SimulatedBroker`
+- Rejected orders are collected and included in `BacktestReport.rejected_risk_decisions`
+- When `risk_engine=None`, all intents are approved (backward-compatible)
+
+```bash
+# Run all tests (540 total, all pass)
+python3 -m pytest -v
+
+# Style checks
+python3 -m ruff check src tests scripts
+python3 -m ruff format --check src tests scripts
+```
+
+---
+
 **Milestone 6 — Opening Range Breakout Strategy** (complete)
 
 Added the first production strategy: Opening Range Breakout (ORB) in backtest-only mode.

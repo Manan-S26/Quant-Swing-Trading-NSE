@@ -5,13 +5,24 @@ app:
   global_kill_switch: true
 
 universe:
+  name: nifty_starter
   exchange: NSE
+  # Liquid large-cap stocks used for local development and testing only.
+  # Not a trading recommendation.
   symbols:
     - RELIANCE
     - HDFCBANK
     - ICICIBANK
     - INFY
     - TCS
+    - LT
+    - SBIN
+    - AXISBANK
+    - BHARTIARTL
+    - ITC
+  filters:
+    min_avg_daily_value: 100000000
+    max_spread_bps: 20
 
 risk:
   max_daily_loss: 1000

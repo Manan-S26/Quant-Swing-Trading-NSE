@@ -27,7 +27,7 @@ env/
 *secret*
 
 # Data and logs
-data/
+/data/
 logs/
 reports/
 *.parquet

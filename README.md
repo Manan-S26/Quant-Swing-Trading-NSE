@@ -22,6 +22,34 @@ A personal Zerodha-connected Indian equity intraday trading engine.
 
 ## Current milestone
 
+**Milestone 4 — Historical Data Pipeline** (complete)
+
+Added a complete historical data acquisition pipeline:
+
+- **`data/universe.py`** — `UniverseConfig` (Pydantic v2): validates symbol list
+  (non-empty, no duplicates, no blank strings), defaults exchange to NSE, carries
+  optional `filters` dict. `load_universe_config(path)` reads any YAML file that
+  contains a `universe:` section. Default config has 10 liquid NSE large-caps.
+- **`data/validation.py`** — `validate_ohlcv_dataframe(df, symbol, exchange, interval)`:
+  returns a `DataValidationReport` with typed `DataValidationIssue` entries (severity
+  `"error"` or `"warning"`). Checks: required columns, empty df, duplicate timestamps,
+  positive OHLC prices, non-negative volume, correct high ≥ open/close/low, low ≤
+  open/close/high, sorted timestamps, and intraday gap detection (warning, not error).
+- **`data/historical.py`** — `HistoricalDataDownloader(broker, data_dir)`: downloads
+  Zerodha candle dicts via injected broker, normalises `"date"` → `"timestamp"`,
+  coerces numeric types, validates, and optionally saves as Parquet.
+  Storage layout: `DATA_DIR/candles/{exchange}/{symbol}/{interval}.parquet`.
+  `download_universe(instruments, universe, ...)` iterates the full symbol list.
+- **`storage/models.py`** — `HistoricalCandlesMetadata` ORM model: tracks per-symbol
+  download runs, file path, candle count, validation status.
+- **`configs/default.yaml`** — expanded universe to 10 symbols with filters section.
+
+```bash
+python3 -m pytest -v   # 297 tests, all pass
+```
+
+---
+
 **Milestone 3 — Zerodha Read-Only Broker Adapter** (complete)
 
 Added Zerodha broker integration and a safe paper broker:
@@ -42,9 +70,6 @@ Added Zerodha broker integration and a safe paper broker:
 
 Why tests use fake clients: injecting a `FakeKiteClient` (defined in test files)
 avoids any real Zerodha network calls. Tests run fully offline without credentials.
-
-Live order placement is **still not implemented**. `Broker.place_order()` still
-raises `LiveTradingDisabledError` on both `ZerodhaBroker` and `PaperBroker`.
 
 ```bash
 python3 -m pytest -v   # 212 tests, all pass

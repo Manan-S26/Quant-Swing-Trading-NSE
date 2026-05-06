@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 
@@ -45,9 +44,9 @@ class DataValidationIssue:
     severity: str  # "error" | "warning"
     code: str
     message: str
-    symbol: Optional[str] = None
-    timestamp: Optional[datetime] = None
-    row_index: Optional[int] = None
+    symbol: str | None = None
+    timestamp: datetime | None = None
+    row_index: int | None = None
 
 
 @dataclass
@@ -58,8 +57,8 @@ class DataValidationReport:
     exchange: Exchange
     interval: str
     row_count: int
-    start_timestamp: Optional[datetime]
-    end_timestamp: Optional[datetime]
+    start_timestamp: datetime | None
+    end_timestamp: datetime | None
     is_valid: bool
     issues: list[DataValidationIssue] = field(default_factory=list)
 
@@ -93,12 +92,14 @@ def validate_ohlcv_dataframe(
     # -----------------------------------------------------------------------
     missing_cols = [c for c in _REQUIRED_COLUMNS if c not in df.columns]
     for col in missing_cols:
-        issues.append(DataValidationIssue(
-            severity="error",
-            code="MISSING_COLUMN",
-            message=f"Required column '{col}' is missing.",
-            symbol=symbol,
-        ))
+        issues.append(
+            DataValidationIssue(
+                severity="error",
+                code="MISSING_COLUMN",
+                message=f"Required column '{col}' is missing.",
+                symbol=symbol,
+            )
+        )
 
     # If columns are missing we can't safely run remaining checks.
     if missing_cols:
@@ -117,12 +118,14 @@ def validate_ohlcv_dataframe(
     # 2. Empty DataFrame
     # -----------------------------------------------------------------------
     if df.empty:
-        issues.append(DataValidationIssue(
-            severity="error",
-            code="EMPTY_DATAFRAME",
-            message="DataFrame contains no rows.",
-            symbol=symbol,
-        ))
+        issues.append(
+            DataValidationIssue(
+                severity="error",
+                code="EMPTY_DATAFRAME",
+                message="DataFrame contains no rows.",
+                symbol=symbol,
+            )
+        )
         return DataValidationReport(
             symbol=symbol,
             exchange=exchange,
@@ -138,12 +141,14 @@ def validate_ohlcv_dataframe(
     try:
         ts = pd.to_datetime(df["timestamp"])
     except Exception as exc:
-        issues.append(DataValidationIssue(
-            severity="error",
-            code="INVALID_TIMESTAMP",
-            message=f"timestamp column cannot be parsed as datetime: {exc}",
-            symbol=symbol,
-        ))
+        issues.append(
+            DataValidationIssue(
+                severity="error",
+                code="INVALID_TIMESTAMP",
+                message=f"timestamp column cannot be parsed as datetime: {exc}",
+                symbol=symbol,
+            )
+        )
         ts = pd.Series(dtype="datetime64[ns]")
 
     start_ts: datetime | None = ts.min().to_pydatetime() if not ts.empty else None
@@ -156,13 +161,15 @@ def validate_ohlcv_dataframe(
         dupes = ts[ts.duplicated()]
         if not dupes.empty:
             for dup_ts in dupes.unique():
-                issues.append(DataValidationIssue(
-                    severity="error",
-                    code="DUPLICATE_TIMESTAMP",
-                    message=f"Duplicate timestamp found: {dup_ts}",
-                    symbol=symbol,
-                    timestamp=dup_ts.to_pydatetime(),
-                ))
+                issues.append(
+                    DataValidationIssue(
+                        severity="error",
+                        code="DUPLICATE_TIMESTAMP",
+                        message=f"Duplicate timestamp found: {dup_ts}",
+                        symbol=symbol,
+                        timestamp=dup_ts.to_pydatetime(),
+                    )
+                )
 
     # -----------------------------------------------------------------------
     # 4. Positive OHLC
@@ -171,13 +178,15 @@ def validate_ohlcv_dataframe(
         if col in df.columns:
             bad = df[pd.to_numeric(df[col], errors="coerce") <= 0]
             for idx in bad.index:
-                issues.append(DataValidationIssue(
-                    severity="error",
-                    code="NON_POSITIVE_PRICE",
-                    message=f"Column '{col}' has non-positive value {df.at[idx, col]!r} at row {idx}.",
-                    symbol=symbol,
-                    row_index=int(idx),
-                ))
+                issues.append(
+                    DataValidationIssue(
+                        severity="error",
+                        code="NON_POSITIVE_PRICE",
+                        message=f"Column '{col}' has non-positive value {df.at[idx, col]!r} at row {idx}.",
+                        symbol=symbol,
+                        row_index=int(idx),
+                    )
+                )
 
     # -----------------------------------------------------------------------
     # 5. Non-negative volume
@@ -185,13 +194,15 @@ def validate_ohlcv_dataframe(
     if "volume" in df.columns:
         bad_vol = df[pd.to_numeric(df["volume"], errors="coerce") < 0]
         for idx in bad_vol.index:
-            issues.append(DataValidationIssue(
-                severity="error",
-                code="NEGATIVE_VOLUME",
-                message=f"volume is negative ({df.at[idx, 'volume']!r}) at row {idx}.",
-                symbol=symbol,
-                row_index=int(idx),
-            ))
+            issues.append(
+                DataValidationIssue(
+                    severity="error",
+                    code="NEGATIVE_VOLUME",
+                    message=f"volume is negative ({df.at[idx, 'volume']!r}) at row {idx}.",
+                    symbol=symbol,
+                    row_index=int(idx),
+                )
+            )
 
     # -----------------------------------------------------------------------
     # 6. OHLC relationship — high must be the maximum, low the minimum
@@ -201,45 +212,51 @@ def validate_ohlcv_dataframe(
         num = df[list(ohlc_cols)].apply(pd.to_numeric, errors="coerce")
 
         # high < open or high < close or high < low
-        bad_high = num[(num["high"] < num["open"]) |
-                       (num["high"] < num["close"]) |
-                       (num["high"] < num["low"])]
+        bad_high = num[
+            (num["high"] < num["open"]) | (num["high"] < num["close"]) | (num["high"] < num["low"])
+        ]
         for idx in bad_high.index:
-            issues.append(DataValidationIssue(
-                severity="error",
-                code="INVALID_HIGH",
-                message=(
-                    f"high ({num.at[idx, 'high']}) is less than open/close/low at row {idx}."
-                ),
-                symbol=symbol,
-                row_index=int(idx),
-            ))
+            issues.append(
+                DataValidationIssue(
+                    severity="error",
+                    code="INVALID_HIGH",
+                    message=(
+                        f"high ({num.at[idx, 'high']}) is less than open/close/low at row {idx}."
+                    ),
+                    symbol=symbol,
+                    row_index=int(idx),
+                )
+            )
 
         # low > open or low > close or low > high
-        bad_low = num[(num["low"] > num["open"]) |
-                      (num["low"] > num["close"]) |
-                      (num["low"] > num["high"])]
+        bad_low = num[
+            (num["low"] > num["open"]) | (num["low"] > num["close"]) | (num["low"] > num["high"])
+        ]
         for idx in bad_low.index:
-            issues.append(DataValidationIssue(
-                severity="error",
-                code="INVALID_LOW",
-                message=(
-                    f"low ({num.at[idx, 'low']}) is greater than open/close/high at row {idx}."
-                ),
-                symbol=symbol,
-                row_index=int(idx),
-            ))
+            issues.append(
+                DataValidationIssue(
+                    severity="error",
+                    code="INVALID_LOW",
+                    message=(
+                        f"low ({num.at[idx, 'low']}) is greater than open/close/high at row {idx}."
+                    ),
+                    symbol=symbol,
+                    row_index=int(idx),
+                )
+            )
 
     # -----------------------------------------------------------------------
     # 7. Sort order
     # -----------------------------------------------------------------------
     if not ts.empty and not ts.is_monotonic_increasing:
-        issues.append(DataValidationIssue(
-            severity="error",
-            code="UNSORTED_TIMESTAMPS",
-            message="Timestamps are not sorted in ascending order.",
-            symbol=symbol,
-        ))
+        issues.append(
+            DataValidationIssue(
+                severity="error",
+                code="UNSORTED_TIMESTAMPS",
+                message="Timestamps are not sorted in ascending order.",
+                symbol=symbol,
+            )
+        )
 
     # -----------------------------------------------------------------------
     # 8. Gap detection (warning only, intraday intervals only)
@@ -253,16 +270,18 @@ def validate_ohlcv_dataframe(
         for idx in large_gaps.index:
             gap_start = sorted_ts.iloc[idx - 1]
             gap_end = sorted_ts.iloc[idx]
-            issues.append(DataValidationIssue(
-                severity="warning",
-                code="POSSIBLE_MISSING_CANDLES",
-                message=(
-                    f"Large gap detected: {gap_start} → {gap_end} "
-                    f"({diffs.iloc[idx]}). Expected ~{expected}."
-                ),
-                symbol=symbol,
-                timestamp=gap_end.to_pydatetime(),
-            ))
+            issues.append(
+                DataValidationIssue(
+                    severity="warning",
+                    code="POSSIBLE_MISSING_CANDLES",
+                    message=(
+                        f"Large gap detected: {gap_start} → {gap_end} "
+                        f"({diffs.iloc[idx]}). Expected ~{expected}."
+                    ),
+                    symbol=symbol,
+                    timestamp=gap_end.to_pydatetime(),
+                )
+            )
 
     # -----------------------------------------------------------------------
     # Result

@@ -42,9 +42,9 @@ class OrderType(StrEnum):
 
 
 class ProductType(StrEnum):
-    MIS = "MIS"   # Margin Intraday Square-off
-    CNC = "CNC"   # Cash-and-Carry (delivery)
-    NRML = "NRML" # Normal (F&O, not used in v1)
+    MIS = "MIS"  # Margin Intraday Square-off
+    CNC = "CNC"  # Cash-and-Carry (delivery)
+    NRML = "NRML"  # Normal (F&O, not used in v1)
 
 
 class TimeInForce(StrEnum):

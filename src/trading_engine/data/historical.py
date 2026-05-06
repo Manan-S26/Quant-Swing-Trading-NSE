@@ -91,7 +91,11 @@ class HistoricalDataDownloader:
         exch = Exchange(exchange) if isinstance(exchange, str) else exchange
         self._logger.info(
             "Downloading %s %s %s %s → %s",
-            symbol, exch, interval, from_date.date(), to_date.date(),
+            symbol,
+            exch,
+            interval,
+            from_date.date(),
+            to_date.date(),
         )
 
         raw: list[dict[str, Any]] = self._broker.get_historical_data(
@@ -107,13 +111,18 @@ class HistoricalDataDownloader:
         if report.is_valid:
             self._logger.info(
                 "Downloaded %d candles for %s [%s]. Valid.",
-                report.row_count, symbol, interval,
+                report.row_count,
+                symbol,
+                interval,
             )
         else:
             error_codes = [i.code for i in report.issues if i.severity == "error"]
             self._logger.warning(
                 "Downloaded %d candles for %s [%s]. Validation errors: %s",
-                report.row_count, symbol, interval, error_codes,
+                report.row_count,
+                symbol,
+                interval,
+                error_codes,
             )
 
         if save:
@@ -149,9 +158,7 @@ class HistoricalDataDownloader:
         results: dict[str, tuple[pd.DataFrame, DataValidationReport]] = {}
         for symbol in universe.get_symbols():
             if symbol not in instruments:
-                self._logger.warning(
-                    "No instrument_token found for %s — skipping.", symbol
-                )
+                self._logger.warning("No instrument_token found for %s — skipping.", symbol)
                 continue
             df, report = self.download(
                 instrument_token=instruments[symbol],
@@ -188,9 +195,7 @@ class HistoricalDataDownloader:
         it to "timestamp" and ensures numeric dtypes for OHLCV columns.
         """
         if not raw:
-            return pd.DataFrame(
-                columns=["timestamp", "open", "high", "low", "close", "volume"]
-            )
+            return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
 
         df = pd.DataFrame(raw)
 

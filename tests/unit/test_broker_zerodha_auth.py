@@ -12,10 +12,10 @@ from pydantic import SecretStr
 from trading_engine.broker.zerodha.auth import KiteAuthManager
 from trading_engine.common.exceptions import ConfigurationError
 
-
 # ---------------------------------------------------------------------------
 # Fake helpers
 # ---------------------------------------------------------------------------
+
 
 class FakeKiteClient:
     """Simulates the KiteConnect auth-related API surface."""
@@ -56,6 +56,7 @@ class FakeSettings:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def fake_kite() -> FakeKiteClient:
     return FakeKiteClient()
@@ -74,6 +75,7 @@ def auth(fake_kite: FakeKiteClient, settings: FakeSettings) -> KiteAuthManager:
 # ---------------------------------------------------------------------------
 # Construction and repr
 # ---------------------------------------------------------------------------
+
 
 class TestKiteAuthManagerConstruction:
     def test_instantiates(self, auth: KiteAuthManager) -> None:
@@ -94,6 +96,7 @@ class TestKiteAuthManagerConstruction:
 # validate_token
 # ---------------------------------------------------------------------------
 
+
 class TestValidateToken:
     def test_token_invalid_when_empty(self, auth: KiteAuthManager) -> None:
         assert auth.validate_token() is False
@@ -112,6 +115,7 @@ class TestValidateToken:
 # get_login_url
 # ---------------------------------------------------------------------------
 
+
 class TestGetLoginUrl:
     def test_returns_url_from_fake_client(self, auth: KiteAuthManager) -> None:
         url = auth.get_login_url()
@@ -128,6 +132,7 @@ class TestGetLoginUrl:
 # ---------------------------------------------------------------------------
 # generate_session
 # ---------------------------------------------------------------------------
+
 
 class TestGenerateSession:
     def test_sets_token_on_kite_client(
@@ -160,6 +165,7 @@ class TestGenerateSession:
 # ---------------------------------------------------------------------------
 # get_access_token_value
 # ---------------------------------------------------------------------------
+
 
 class TestGetAccessTokenValue:
     def test_returns_empty_string_when_no_token(self, auth: KiteAuthManager) -> None:

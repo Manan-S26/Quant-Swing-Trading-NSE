@@ -6,7 +6,7 @@ All tests run without credentials.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -14,10 +14,10 @@ from trading_engine.broker.zerodha.client import ZerodhaBroker
 from trading_engine.common.exceptions import BrokerConnectionError, LiveTradingDisabledError
 from trading_engine.domain.enums import Exchange
 
-
 # ---------------------------------------------------------------------------
 # Fake Kite client — simulates the pykiteconnect SDK surface we use
 # ---------------------------------------------------------------------------
+
 
 class FakeKiteClient:
     """Minimal fake KiteConnect client for unit testing."""
@@ -32,8 +32,14 @@ class FakeKiteClient:
             {"tradingsymbol": "RELIANCE", "exchange": "NSE", "instrument_token": 738561},
         ]
         self._historical = [
-            {"date": datetime(2024, 1, 15, 9, 15), "open": 2800, "high": 2820,
-             "low": 2795, "close": 2810, "volume": 100000},
+            {
+                "date": datetime(2024, 1, 15, 9, 15),
+                "open": 2800,
+                "high": 2820,
+                "low": 2795,
+                "close": 2810,
+                "volume": 100000,
+            },
         ]
 
     def set_access_token(self, token: str) -> None:
@@ -64,6 +70,7 @@ class FakeKiteClient:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def fake_kite() -> FakeKiteClient:
     return FakeKiteClient()
@@ -84,6 +91,7 @@ def connected_broker(broker: ZerodhaBroker) -> ZerodhaBroker:
 # Construction
 # ---------------------------------------------------------------------------
 
+
 class TestZerodhaBrokerConstruction:
     def test_instantiates_with_fake_client(self, fake_kite: FakeKiteClient) -> None:
         broker = ZerodhaBroker(kite_client=fake_kite)
@@ -97,6 +105,7 @@ class TestZerodhaBrokerConstruction:
 # ---------------------------------------------------------------------------
 # Connection lifecycle
 # ---------------------------------------------------------------------------
+
 
 class TestZerodhaBrokerConnection:
     def test_connect_marks_connected(self, broker: ZerodhaBroker) -> None:
@@ -120,6 +129,7 @@ class TestZerodhaBrokerConnection:
 # ---------------------------------------------------------------------------
 # Data delegation — each method must delegate to the fake client
 # ---------------------------------------------------------------------------
+
 
 class TestZerodhaBrokerDelegation:
     def test_get_positions_delegates(
@@ -179,8 +189,8 @@ class TestZerodhaBrokerDelegation:
         assert len(result) == 1
 
     def test_get_historical_data_delegates(self, broker: ZerodhaBroker) -> None:
-        from_dt = datetime(2024, 1, 15, tzinfo=timezone.utc)
-        to_dt = datetime(2024, 1, 15, 15, 30, tzinfo=timezone.utc)
+        from_dt = datetime(2024, 1, 15, tzinfo=UTC)
+        to_dt = datetime(2024, 1, 15, 15, 30, tzinfo=UTC)
         result = broker.get_historical_data(
             instrument_token=738561,
             from_date=from_dt,
@@ -194,6 +204,7 @@ class TestZerodhaBrokerDelegation:
 # ---------------------------------------------------------------------------
 # Connection guard — methods requiring connection must fail if disconnected
 # ---------------------------------------------------------------------------
+
 
 class TestConnectionGuard:
     def test_get_positions_fails_if_disconnected(self, broker: ZerodhaBroker) -> None:
@@ -212,20 +223,16 @@ class TestConnectionGuard:
         with pytest.raises(BrokerConnectionError):
             broker.get_margins()
 
-    def test_get_instruments_does_not_require_connection(
-        self, broker: ZerodhaBroker
-    ) -> None:
+    def test_get_instruments_does_not_require_connection(self, broker: ZerodhaBroker) -> None:
         # Instrument list download doesn't require a trading session.
         result = broker.get_instruments()
         assert isinstance(result, list)
 
-    def test_get_historical_data_does_not_require_connection(
-        self, broker: ZerodhaBroker
-    ) -> None:
+    def test_get_historical_data_does_not_require_connection(self, broker: ZerodhaBroker) -> None:
         result = broker.get_historical_data(
             instrument_token=738561,
-            from_date=datetime(2024, 1, 15, tzinfo=timezone.utc),
-            to_date=datetime(2024, 1, 15, 15, 30, tzinfo=timezone.utc),
+            from_date=datetime(2024, 1, 15, tzinfo=UTC),
+            to_date=datetime(2024, 1, 15, 15, 30, tzinfo=UTC),
             interval="minute",
         )
         assert isinstance(result, list)
@@ -235,10 +242,9 @@ class TestConnectionGuard:
 # Streaming — not yet implemented
 # ---------------------------------------------------------------------------
 
+
 class TestStreamTicks:
-    def test_stream_ticks_raises_not_implemented(
-        self, connected_broker: ZerodhaBroker
-    ) -> None:
+    def test_stream_ticks_raises_not_implemented(self, connected_broker: ZerodhaBroker) -> None:
         with pytest.raises(NotImplementedError, match="Milestone 3"):
             connected_broker.stream_ticks(["NSE:RELIANCE"], callback=lambda t: None)
 
@@ -247,12 +253,17 @@ class TestStreamTicks:
 # Safety gate — live order placement must be blocked
 # ---------------------------------------------------------------------------
 
+
 class TestOrderPlacementBlocked:
     def test_place_order_raises(self, connected_broker: ZerodhaBroker) -> None:
         with pytest.raises(LiveTradingDisabledError):
             connected_broker.place_order(
-                tradingsymbol="RELIANCE", exchange="NSE", quantity=10,
-                order_type="MARKET", product="MIS", transaction_type="BUY",
+                tradingsymbol="RELIANCE",
+                exchange="NSE",
+                quantity=10,
+                order_type="MARKET",
+                product="MIS",
+                transaction_type="BUY",
             )
 
     def test_modify_order_raises(self, connected_broker: ZerodhaBroker) -> None:
@@ -263,9 +274,7 @@ class TestOrderPlacementBlocked:
         with pytest.raises(LiveTradingDisabledError):
             connected_broker.cancel_order(order_id="ord_abc")
 
-    def test_place_order_blocked_even_when_disconnected(
-        self, broker: ZerodhaBroker
-    ) -> None:
+    def test_place_order_blocked_even_when_disconnected(self, broker: ZerodhaBroker) -> None:
         # Safety gate must not depend on connection state.
         with pytest.raises(LiveTradingDisabledError):
             broker.place_order(tradingsymbol="RELIANCE")

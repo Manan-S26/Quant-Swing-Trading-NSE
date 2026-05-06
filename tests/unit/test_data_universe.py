@@ -10,10 +10,10 @@ from pydantic import ValidationError
 from trading_engine.data.universe import UniverseConfig, load_universe_config
 from trading_engine.domain.enums import Exchange
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def valid_universe_yaml(tmp_path: Path) -> Path:
@@ -50,6 +50,7 @@ universe:
 # load_universe_config
 # ---------------------------------------------------------------------------
 
+
 class TestLoadUniverseConfig:
     def test_loads_valid_yaml(self, valid_universe_yaml: Path) -> None:
         config = load_universe_config(valid_universe_yaml)
@@ -65,9 +66,7 @@ class TestLoadUniverseConfig:
         config = load_universe_config(valid_universe_yaml)
         assert config.filters["min_avg_daily_value"] == 100000000
 
-    def test_minimal_config_defaults_exchange_to_nse(
-        self, minimal_universe_yaml: Path
-    ) -> None:
+    def test_minimal_config_defaults_exchange_to_nse(self, minimal_universe_yaml: Path) -> None:
         config = load_universe_config(minimal_universe_yaml)
         assert config.exchange == Exchange.NSE
 
@@ -95,6 +94,7 @@ class TestLoadUniverseConfig:
 # ---------------------------------------------------------------------------
 # UniverseConfig validation
 # ---------------------------------------------------------------------------
+
 
 class TestUniverseConfigValidation:
     def test_valid_config(self) -> None:

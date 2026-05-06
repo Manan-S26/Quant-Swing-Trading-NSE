@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from trading_engine.domain.enums import (
     Exchange,
     OrderStatus,
@@ -97,17 +95,31 @@ class TestTimeInForce:
 class TestOrderStatus:
     def test_all_required_statuses_exist(self) -> None:
         required = [
-            "CREATED", "RISK_APPROVED", "RISK_REJECTED", "SUBMITTED", "OPEN",
-            "PARTIALLY_FILLED", "FILLED", "CANCEL_REQUESTED", "CANCELLED",
-            "REJECTED", "FAILED", "UNKNOWN", "RECONCILED",
+            "CREATED",
+            "RISK_APPROVED",
+            "RISK_REJECTED",
+            "SUBMITTED",
+            "OPEN",
+            "PARTIALLY_FILLED",
+            "FILLED",
+            "CANCEL_REQUESTED",
+            "CANCELLED",
+            "REJECTED",
+            "FAILED",
+            "UNKNOWN",
+            "RECONCILED",
         ]
         values = {s.value for s in OrderStatus}
         for status in required:
             assert status in values, f"{status} missing from OrderStatus"
 
     def test_terminal_statuses_present(self) -> None:
-        terminal = {OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED,
-                    OrderStatus.FAILED}
+        terminal = {
+            OrderStatus.FILLED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.FAILED,
+        }
         assert terminal.issubset(set(OrderStatus))
 
 

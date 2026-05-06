@@ -53,9 +53,7 @@ class ZerodhaBroker(Broker):
         logger: logging.Logger | None = None,
     ) -> None:
         if kite_client is None:
-            raise BrokerConnectionError(
-                "kite_client cannot be None. Pass a KiteConnect instance."
-            )
+            raise BrokerConnectionError("kite_client cannot be None. Pass a KiteConnect instance.")
         self._kite = kite_client
         self._settings = settings
         self._logger = logger or logging.getLogger(__name__)

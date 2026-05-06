@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -18,21 +18,22 @@ from trading_engine.domain.enums import (
     TimeInForce,
 )
 from trading_engine.domain.models import (
-    InternalOrder,
     Instrument,
+    InternalOrder,
     Money,
-    Position,
     PortfolioSnapshot,
+    Position,
     RiskDecision,
     TradeFill,
 )
 
-NOW = datetime(2024, 1, 15, 9, 30, tzinfo=timezone.utc)
+NOW = datetime(2024, 1, 15, 9, 30, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def make_internal_order(**overrides: object) -> InternalOrder:
     defaults: dict = dict(
@@ -80,6 +81,7 @@ def make_position(**overrides: object) -> Position:
 # Money
 # ---------------------------------------------------------------------------
 
+
 class TestMoney:
     def test_valid_positive_amount(self) -> None:
         m = Money(amount=Decimal("1000.50"))
@@ -112,6 +114,7 @@ class TestMoney:
 # Instrument
 # ---------------------------------------------------------------------------
 
+
 class TestInstrument:
     def test_valid_instrument(self) -> None:
         inst = Instrument(symbol="RELIANCE", exchange=Exchange.NSE)
@@ -136,9 +139,7 @@ class TestInstrument:
             Instrument(symbol="RELIANCE", exchange=Exchange.NSE, lot_size=-1)
 
     def test_valid_tick_size(self) -> None:
-        inst = Instrument(
-            symbol="RELIANCE", exchange=Exchange.NSE, tick_size=Decimal("0.05")
-        )
+        inst = Instrument(symbol="RELIANCE", exchange=Exchange.NSE, tick_size=Decimal("0.05"))
         assert inst.tick_size == Decimal("0.05")
 
     def test_zero_tick_size_raises(self) -> None:
@@ -157,6 +158,7 @@ class TestInstrument:
 # ---------------------------------------------------------------------------
 # RiskDecision
 # ---------------------------------------------------------------------------
+
 
 class TestRiskDecision:
     def test_approved_decision(self) -> None:
@@ -211,15 +213,14 @@ class TestRiskDecision:
         assert rd.checked_limits == {}
 
     def test_checked_limits_accepts_arbitrary_data(self) -> None:
-        rd = make_risk_decision(
-            checked_limits={"max_daily_loss": 1000, "used": 250.5}
-        )
+        rd = make_risk_decision(checked_limits={"max_daily_loss": 1000, "used": 250.5})
         assert rd.checked_limits["max_daily_loss"] == 1000
 
 
 # ---------------------------------------------------------------------------
 # InternalOrder
 # ---------------------------------------------------------------------------
+
 
 class TestInternalOrderValid:
     def test_market_buy(self) -> None:
@@ -229,9 +230,7 @@ class TestInternalOrderValid:
         assert order.status == OrderStatus.CREATED
 
     def test_limit_buy_with_price(self) -> None:
-        order = make_internal_order(
-            order_type=OrderType.LIMIT, price=Decimal("2800.00")
-        )
+        order = make_internal_order(order_type=OrderType.LIMIT, price=Decimal("2800.00"))
         assert order.price == Decimal("2800.00")
 
     def test_sl_with_price_and_trigger(self) -> None:
@@ -259,6 +258,7 @@ class TestInternalOrderValid:
 
     def test_updated_at_after_created_at(self) -> None:
         from datetime import timedelta
+
         later = NOW + timedelta(minutes=5)
         order = make_internal_order(created_at=NOW, updated_at=later)
         assert order.updated_at > order.created_at
@@ -306,6 +306,7 @@ class TestInternalOrderInvalid:
 
     def test_updated_at_before_created_at_raises(self) -> None:
         from datetime import timedelta
+
         earlier = NOW - timedelta(minutes=5)
         with pytest.raises(ValidationError, match="updated_at"):
             make_internal_order(created_at=NOW, updated_at=earlier)
@@ -314,6 +315,7 @@ class TestInternalOrderInvalid:
 # ---------------------------------------------------------------------------
 # TradeFill
 # ---------------------------------------------------------------------------
+
 
 class TestTradeFill:
     def _make(self, **overrides: object) -> TradeFill:
@@ -368,6 +370,7 @@ class TestTradeFill:
 # Position
 # ---------------------------------------------------------------------------
 
+
 class TestPosition:
     def test_valid_position(self) -> None:
         pos = make_position()
@@ -408,6 +411,7 @@ class TestPosition:
 # ---------------------------------------------------------------------------
 # PortfolioSnapshot
 # ---------------------------------------------------------------------------
+
 
 class TestPortfolioSnapshot:
     def test_valid_snapshot(self) -> None:

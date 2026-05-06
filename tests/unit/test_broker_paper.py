@@ -27,6 +27,7 @@ def connected_broker() -> PaperBroker:
 # Connection lifecycle
 # ---------------------------------------------------------------------------
 
+
 class TestPaperBrokerConnection:
     def test_not_connected_on_init(self, broker: PaperBroker) -> None:
         assert broker.is_connected is False
@@ -51,6 +52,7 @@ class TestPaperBrokerConnection:
 # ---------------------------------------------------------------------------
 # Read-only methods return safe empty/default values
 # ---------------------------------------------------------------------------
+
 
 class TestPaperBrokerReadMethods:
     def test_get_positions_returns_empty_list(self, connected_broker: PaperBroker) -> None:
@@ -83,10 +85,9 @@ class TestPaperBrokerReadMethods:
 # Streaming — not yet implemented
 # ---------------------------------------------------------------------------
 
+
 class TestPaperBrokerStreaming:
-    def test_stream_ticks_raises_not_implemented(
-        self, connected_broker: PaperBroker
-    ) -> None:
+    def test_stream_ticks_raises_not_implemented(self, connected_broker: PaperBroker) -> None:
         with pytest.raises(NotImplementedError, match="Milestone 8"):
             connected_broker.stream_ticks(["NSE:RELIANCE"], callback=lambda t: None)
 
@@ -95,24 +96,17 @@ class TestPaperBrokerStreaming:
 # Order placement — must be blocked
 # ---------------------------------------------------------------------------
 
-class TestPaperBrokerOrdersBlocked:
-    def test_place_order_raises_live_trading_disabled(
-        self, connected_broker: PaperBroker
-    ) -> None:
-        with pytest.raises(LiveTradingDisabledError):
-            connected_broker.place_order(
-                tradingsymbol="RELIANCE", quantity=10, order_type="MARKET"
-            )
 
-    def test_modify_order_raises_live_trading_disabled(
-        self, connected_broker: PaperBroker
-    ) -> None:
+class TestPaperBrokerOrdersBlocked:
+    def test_place_order_raises_live_trading_disabled(self, connected_broker: PaperBroker) -> None:
+        with pytest.raises(LiveTradingDisabledError):
+            connected_broker.place_order(tradingsymbol="RELIANCE", quantity=10, order_type="MARKET")
+
+    def test_modify_order_raises_live_trading_disabled(self, connected_broker: PaperBroker) -> None:
         with pytest.raises(LiveTradingDisabledError):
             connected_broker.modify_order(order_id="abc", price=2850)
 
-    def test_cancel_order_raises_live_trading_disabled(
-        self, connected_broker: PaperBroker
-    ) -> None:
+    def test_cancel_order_raises_live_trading_disabled(self, connected_broker: PaperBroker) -> None:
         with pytest.raises(LiveTradingDisabledError):
             connected_broker.cancel_order(order_id="abc")
 
@@ -124,4 +118,5 @@ class TestPaperBrokerOrdersBlocked:
     def test_paper_broker_is_not_zerodha_broker(self) -> None:
         # Sanity check: PaperBroker is its own concrete class.
         from trading_engine.broker.zerodha.client import ZerodhaBroker
+
         assert not isinstance(PaperBroker(), ZerodhaBroker)

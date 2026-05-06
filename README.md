@@ -22,6 +22,50 @@ A personal Zerodha-connected Indian equity intraday trading engine.
 
 ## Current milestone
 
+**Milestone 5 — Event-Driven Backtesting Engine** (complete)
+
+Added a complete offline backtesting framework. No live broker, no Zerodha calls,
+no real order placement at any point in this milestone.
+
+**How the backtester works:**
+
+1. `HistoricalDataFeed` accepts one or more symbol DataFrames, merges them, and
+   yields `(timestamp, symbol, Bar)` tuples in chronological order.
+2. `BacktestEngine` iterates the feed, calls `strategy.on_bar()` per bar, and
+   routes `OrderIntent` objects to `SimulatedBroker`.
+3. `SimulatedBroker` applies slippage via `SlippageModel`, calculates fees via
+   `CostModel`, and creates `TradeFill` objects, then updates `BacktestPortfolio`.
+4. After each bar the portfolio is marked to market and equity is recorded.
+5. At the end, `calculate_backtest_metrics()` computes summary statistics and
+   `BacktestEngine.run()` returns a `BacktestReport` (JSON-serialisable).
+
+**Supported in v1:**
+- MARKET orders (fill at bar close ± slippage)
+- LIMIT orders (BUY fills if bar.low ≤ limit; SELL fills if bar.high ≥ limit)
+- Long-only positions
+- Indian equity intraday fee model (brokerage, STT, exchange charge, SEBI, stamp, GST)
+- Configurable slippage in basis points
+- Per-run `BacktestReport` with equity curve, fills, and metrics (total return,
+  max drawdown, win rate, profit factor, expectancy)
+- JSON report serialisation via `report.save_json(path)`
+
+**Intentionally not supported yet:**
+- SL / SL-M orders (raise `UnsupportedOrderTypeError`)
+- Short selling
+- Risk engine limits (placeholder `_risk_check()` always approves)
+- Multiple partial fills per bar
+- Tick-level simulation
+
+No Zerodha SDK is imported anywhere in the backtest package.
+
+```bash
+python3 -m pytest -v          # 417 tests, all pass
+python3 -m ruff check src tests   # clean
+python3 -m ruff format --check src tests  # clean
+```
+
+---
+
 **Milestone 4 — Historical Data Pipeline** (complete)
 
 Added a complete historical data acquisition pipeline:

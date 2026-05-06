@@ -6,16 +6,15 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 from trading_engine.data.historical import HistoricalDataDownloader
 from trading_engine.data.universe import UniverseConfig
 from trading_engine.domain.enums import Exchange
 
-
 # ---------------------------------------------------------------------------
 # Fake broker
 # ---------------------------------------------------------------------------
+
 
 def _make_raw_candle(
     date: datetime | None = None,
@@ -39,11 +38,15 @@ class FakeBroker:
     """Broker stub that returns configurable candle data."""
 
     def __init__(self, candles: list[dict] | None = None) -> None:
-        self._candles = candles if candles is not None else [
-            _make_raw_candle(datetime(2024, 1, 15, 9, 15)),
-            _make_raw_candle(datetime(2024, 1, 15, 9, 16)),
-            _make_raw_candle(datetime(2024, 1, 15, 9, 17)),
-        ]
+        self._candles = (
+            candles
+            if candles is not None
+            else [
+                _make_raw_candle(datetime(2024, 1, 15, 9, 15)),
+                _make_raw_candle(datetime(2024, 1, 15, 9, 16)),
+                _make_raw_candle(datetime(2024, 1, 15, 9, 17)),
+            ]
+        )
         self.calls: list[dict] = []
 
     def get_historical_data(
@@ -53,12 +56,14 @@ class FakeBroker:
         to_date: datetime,
         interval: str,
     ) -> list[dict]:
-        self.calls.append({
-            "instrument_token": instrument_token,
-            "from_date": from_date,
-            "to_date": to_date,
-            "interval": interval,
-        })
+        self.calls.append(
+            {
+                "instrument_token": instrument_token,
+                "from_date": from_date,
+                "to_date": to_date,
+                "interval": interval,
+            }
+        )
         return self._candles
 
 
@@ -74,6 +79,7 @@ def _make_downloader(
 # ---------------------------------------------------------------------------
 # DataFrame structure
 # ---------------------------------------------------------------------------
+
 
 class TestDownloadDataFrame:
     def test_returns_dataframe(self, tmp_path: Path) -> None:
@@ -165,6 +171,7 @@ class TestDownloadDataFrame:
 # Parquet save behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestParquetSave:
     def test_save_true_creates_parquet_file(self, tmp_path: Path) -> None:
         downloader, _ = _make_downloader(tmp_path)
@@ -214,6 +221,7 @@ class TestParquetSave:
 # get_candle_file_path
 # ---------------------------------------------------------------------------
 
+
 class TestGetCandleFilePath:
     def test_returns_correct_path(self, tmp_path: Path) -> None:
         downloader, _ = _make_downloader(tmp_path)
@@ -230,6 +238,7 @@ class TestGetCandleFilePath:
 # ---------------------------------------------------------------------------
 # Validation report
 # ---------------------------------------------------------------------------
+
 
 class TestValidationReport:
     def test_returns_data_validation_report(self, tmp_path: Path) -> None:
@@ -279,6 +288,7 @@ class TestValidationReport:
 # Empty candle response
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyCandles:
     def test_empty_response_returns_empty_dataframe(self, tmp_path: Path) -> None:
         downloader, _ = _make_downloader(tmp_path, candles=[])
@@ -325,6 +335,7 @@ class TestEmptyCandles:
 # Broker call forwarding
 # ---------------------------------------------------------------------------
 
+
 class TestBrokerCallForwarding:
     def test_broker_called_with_correct_token(self, tmp_path: Path) -> None:
         downloader, broker = _make_downloader(tmp_path)
@@ -356,6 +367,7 @@ class TestBrokerCallForwarding:
 # ---------------------------------------------------------------------------
 # download_universe
 # ---------------------------------------------------------------------------
+
 
 class TestDownloadUniverse:
     def test_downloads_all_symbols_in_universe(self, tmp_path: Path) -> None:

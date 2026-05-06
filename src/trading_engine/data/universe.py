@@ -52,9 +52,7 @@ class UniverseConfig(BaseModel):
             raise ValueError("universe symbols list cannot be empty")
         for sym in v:
             if not sym or not sym.strip():
-                raise ValueError(
-                    f"universe symbols cannot contain empty strings, got {v!r}"
-                )
+                raise ValueError(f"universe symbols cannot contain empty strings, got {v!r}")
         if len(v) != len(set(v)):
             seen: set[str] = set()
             dupes = [s for s in v if s in seen or seen.add(s)]  # type: ignore[func-returns-value]
@@ -89,8 +87,6 @@ def load_universe_config(config_path: str | Path) -> UniverseConfig:
     raw = yaml.safe_load(path.read_text()) or {}
     universe_section = raw.get("universe")
     if not universe_section:
-        raise ValueError(
-            f"Config file {path} is missing a 'universe' section."
-        )
+        raise ValueError(f"Config file {path} is missing a 'universe' section.")
 
     return UniverseConfig(**universe_section)

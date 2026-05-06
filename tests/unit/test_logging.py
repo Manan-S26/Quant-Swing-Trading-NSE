@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 import logging
 
-import pytest
-
 from trading_engine.common.logging import StructuredJsonFormatter, get_logger
 
 
@@ -71,6 +69,7 @@ class TestStructuredJsonFormatter:
         parsed = self._parse(record)
         # Should parse without error
         from datetime import datetime
+
         datetime.fromisoformat(parsed["timestamp"])
 
     def test_extra_context_included(self) -> None:

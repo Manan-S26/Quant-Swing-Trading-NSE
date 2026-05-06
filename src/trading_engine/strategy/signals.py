@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Any
 
 from trading_engine.common.exceptions import OrderValidationError
 
@@ -48,8 +48,8 @@ class Tick:
     timestamp: datetime
     last_price: Decimal
     volume: int
-    bid: Optional[Decimal] = None
-    ask: Optional[Decimal] = None
+    bid: Decimal | None = None
+    ask: Decimal | None = None
 
     def __post_init__(self) -> None:
         if self.last_price <= 0:
@@ -73,12 +73,12 @@ class OrderIntent:
     order_type: str  # MARKET | LIMIT | SL | SL-M
     product: str  # MIS | CNC | NRML
     validity: str = "DAY"
-    price: Optional[Decimal] = None
-    trigger_price: Optional[Decimal] = None
+    price: Decimal | None = None
+    trigger_price: Decimal | None = None
     reason: str = ""
     strategy_version: str = "1"
     metadata: dict[str, Any] = field(default_factory=dict)
-    timestamp: Optional[datetime] = None
+    timestamp: datetime | None = None
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:

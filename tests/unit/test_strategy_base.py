@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -10,12 +10,12 @@ import pytest
 from trading_engine.broker.base import Broker
 from trading_engine.common.exceptions import LiveTradingDisabledError, OrderValidationError
 from trading_engine.strategy.base import Strategy, StrategyContext
-from trading_engine.strategy.signals import Bar, OrderIntent, Signal, Tick
-
+from trading_engine.strategy.signals import Bar, OrderIntent, Tick
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
+
 
 def make_bar(
     symbol: str = "RELIANCE",
@@ -25,7 +25,7 @@ def make_bar(
     return Bar(
         symbol=symbol,
         exchange=exchange,
-        timestamp=datetime(2024, 1, 15, 9, 15, tzinfo=timezone.utc),
+        timestamp=datetime(2024, 1, 15, 9, 15, tzinfo=UTC),
         open=Decimal("2790.00"),
         high=Decimal("2820.00"),
         low=Decimal("2785.00"),
@@ -71,6 +71,7 @@ class BuyOnEveryBarStrategy(Strategy):
 # Strategy base class
 # ---------------------------------------------------------------------------
 
+
 class TestStrategyCanBeSubclassed:
     def test_do_nothing_strategy_instantiates(self) -> None:
         s = DoNothingStrategy("do_nothing_v1")
@@ -86,7 +87,7 @@ class TestStrategyCanBeSubclassed:
         tick = Tick(
             symbol="RELIANCE",
             exchange="NSE",
-            timestamp=datetime(2024, 1, 15, 9, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2024, 1, 15, 9, 15, tzinfo=UTC),
             last_price=Decimal("2800.00"),
             volume=500,
         )
@@ -127,6 +128,7 @@ class TestStrategyReturnsOrderIntents:
 # StrategyContext
 # ---------------------------------------------------------------------------
 
+
 class TestStrategyContext:
     def test_backtest_mode_flag(self) -> None:
         ctx = make_context("backtest")
@@ -152,6 +154,7 @@ class TestStrategyContext:
 # ---------------------------------------------------------------------------
 # OrderIntent validation
 # ---------------------------------------------------------------------------
+
 
 class TestOrderIntentValidation:
     def test_valid_market_buy(self) -> None:
@@ -258,6 +261,7 @@ class TestOrderIntentValidation:
 # ---------------------------------------------------------------------------
 # Broker safety gate — live order placement must be blocked
 # ---------------------------------------------------------------------------
+
 
 class StubBroker(Broker):
     """Minimal concrete broker for testing the abstract interface."""

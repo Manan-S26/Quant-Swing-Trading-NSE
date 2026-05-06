@@ -13,8 +13,8 @@ milestones. This file only establishes the connection plumbing.
 from __future__ import annotations
 
 import logging
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -59,9 +59,7 @@ def get_session() -> Generator[Session, None, None]:
             session.add(record)
     """
     if _SessionLocal is None:
-        raise RuntimeError(
-            "Database not initialised. Call init_db(database_url) first."
-        )
+        raise RuntimeError("Database not initialised. Call init_db(database_url) first.")
     session: Session = _SessionLocal()
     try:
         yield session

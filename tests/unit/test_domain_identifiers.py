@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from trading_engine.domain.identifiers import (
     generate_fill_id,
     generate_internal_order_id,

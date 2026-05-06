@@ -43,9 +43,7 @@ class StrategyContext:
         self.strategy_id = strategy_id
         self.mode = mode
         self.config: dict[str, Any] = config
-        self.logger: logging.Logger = logging.getLogger(
-            f"strategy.{strategy_id}"
-        )
+        self.logger: logging.Logger = logging.getLogger(f"strategy.{strategy_id}")
 
     @property
     def is_live(self) -> bool:
@@ -77,7 +75,7 @@ class Strategy(ABC):
         self.config: dict[str, Any] = config or {}
         self._logger = logging.getLogger(f"strategy.{strategy_id}")
 
-    def on_start(self, context: StrategyContext) -> None:
+    def on_start(self, context: StrategyContext) -> None:  # noqa: B027
         """Called once when the strategy runner initialises the strategy."""
 
     @abstractmethod
@@ -91,7 +89,7 @@ class Strategy(ABC):
         """
         return []
 
-    def on_order_update(
+    def on_order_update(  # noqa: B027
         self, order_update: dict[str, Any], context: StrategyContext
     ) -> None:
         """Called when an order's status changes.
@@ -100,5 +98,5 @@ class Strategy(ABC):
         needs to react (e.g. place a paired exit order).
         """
 
-    def on_stop(self, context: StrategyContext) -> None:
+    def on_stop(self, context: StrategyContext) -> None:  # noqa: B027
         """Called once when the strategy runner is stopping."""

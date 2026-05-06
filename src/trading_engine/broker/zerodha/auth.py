@@ -75,8 +75,7 @@ class KiteAuthManager:
         """
         if not self._api_key.get_secret_value():
             raise ConfigurationError(
-                "ZERODHA_API_KEY is not configured. "
-                "Set it in .env before calling get_login_url()."
+                "ZERODHA_API_KEY is not configured. Set it in .env before calling get_login_url()."
             )
         return self._kite.login_url()
 

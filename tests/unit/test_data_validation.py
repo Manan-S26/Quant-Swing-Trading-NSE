@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 import pandas as pd
-import pytest
 
 from trading_engine.data.validation import (
     DataValidationReport,
@@ -13,10 +10,10 @@ from trading_engine.data.validation import (
 )
 from trading_engine.domain.enums import Exchange
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_candle(
     timestamp: str = "2024-01-15 09:15:00",
@@ -62,6 +59,7 @@ def _warning_codes(report: DataValidationReport) -> set[str]:
 # Valid data
 # ---------------------------------------------------------------------------
 
+
 class TestValidData:
     def test_valid_dataframe_is_valid(self) -> None:
         report = _validate(_make_df())
@@ -93,6 +91,7 @@ class TestValidData:
 # ---------------------------------------------------------------------------
 # Missing required columns
 # ---------------------------------------------------------------------------
+
 
 class TestMissingColumns:
     def test_missing_timestamp_is_invalid(self) -> None:
@@ -131,19 +130,16 @@ class TestMissingColumns:
 # Empty DataFrame
 # ---------------------------------------------------------------------------
 
+
 class TestEmptyDataFrame:
     def test_empty_dataframe_is_invalid(self) -> None:
-        df = pd.DataFrame(
-            columns=["timestamp", "open", "high", "low", "close", "volume"]
-        )
+        df = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
         report = _validate(df)
         assert report.is_valid is False
         assert "EMPTY_DATAFRAME" in _error_codes(report)
 
     def test_empty_dataframe_row_count_is_zero(self) -> None:
-        df = pd.DataFrame(
-            columns=["timestamp", "open", "high", "low", "close", "volume"]
-        )
+        df = pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
         report = _validate(df)
         assert report.row_count == 0
 
@@ -151,6 +147,7 @@ class TestEmptyDataFrame:
 # ---------------------------------------------------------------------------
 # Duplicate timestamps
 # ---------------------------------------------------------------------------
+
 
 class TestDuplicateTimestamps:
     def test_duplicate_timestamps_is_invalid(self) -> None:
@@ -167,6 +164,7 @@ class TestDuplicateTimestamps:
 # ---------------------------------------------------------------------------
 # Price validation
 # ---------------------------------------------------------------------------
+
 
 class TestPriceValidation:
     def test_zero_open_is_invalid(self) -> None:
@@ -194,6 +192,7 @@ class TestPriceValidation:
 # Volume validation
 # ---------------------------------------------------------------------------
 
+
 class TestVolumeValidation:
     def test_negative_volume_is_invalid(self) -> None:
         rows = [_make_candle(volume=-1)]
@@ -211,6 +210,7 @@ class TestVolumeValidation:
 # ---------------------------------------------------------------------------
 # OHLC relationship checks
 # ---------------------------------------------------------------------------
+
 
 class TestOHLCRelationships:
     def test_high_below_close_is_invalid(self) -> None:
@@ -248,6 +248,7 @@ class TestOHLCRelationships:
 # Sort order
 # ---------------------------------------------------------------------------
 
+
 class TestSortOrder:
     def test_unsorted_timestamps_is_invalid(self) -> None:
         rows = [
@@ -267,6 +268,7 @@ class TestSortOrder:
 # ---------------------------------------------------------------------------
 # Gap detection (warnings)
 # ---------------------------------------------------------------------------
+
 
 class TestGapDetection:
     def test_large_gap_produces_warning(self) -> None:

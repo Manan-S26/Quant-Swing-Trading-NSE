@@ -88,17 +88,13 @@ class TestSecretsMasked:
 
 
 class TestEnvOverride:
-    def test_live_trading_can_be_enabled_via_env(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_live_trading_can_be_enabled_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
         # Note: env vars take effect when Settings reads them; use a fresh instance.
         settings = Settings(_env_file=".env.test_nonexistent")  # type: ignore[call-arg]
         assert settings.live_trading_enabled is True
 
-    def test_paper_trading_can_be_disabled_via_env(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_paper_trading_can_be_disabled_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PAPER_TRADING_ENABLED", "false")
         settings = Settings(_env_file=".env.test_nonexistent")  # type: ignore[call-arg]
         assert settings.paper_trading_enabled is False

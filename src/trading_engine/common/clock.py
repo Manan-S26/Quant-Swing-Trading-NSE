@@ -8,7 +8,7 @@ simulated time.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -51,7 +51,7 @@ class LiveClock(Clock):
     """Returns real wall-clock time."""
 
     def now(self) -> datetime:
-        return datetime.now(tz=timezone.utc)
+        return datetime.now(tz=UTC)
 
 
 class SimulatedClock(Clock):

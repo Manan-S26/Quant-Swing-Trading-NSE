@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: trading_engine_postgres
+    environment:
+      POSTGRES_USER: trading
+      POSTGRES_PASSWORD: trading
+      POSTGRES_DB: trading_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading -d trading_engine"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: trading_engine_redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:

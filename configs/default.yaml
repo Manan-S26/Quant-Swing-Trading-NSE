@@ -1,0 +1,33 @@
+app:
+  env: development
+  trading_mode: backtest
+  live_trading_enabled: false
+  global_kill_switch: true
+
+universe:
+  exchange: NSE
+  symbols:
+    - RELIANCE
+    - HDFCBANK
+    - ICICIBANK
+    - INFY
+    - TCS
+
+risk:
+  max_daily_loss: 1000
+  max_order_value: 10000
+  max_open_positions: 3
+  max_orders_per_second: 1
+  market_data_stale_seconds: 5
+
+costs:
+  brokerage_per_order: 20
+  slippage_bps_normal: 2
+  slippage_bps_conservative: 5
+  slippage_bps_stress: 10
+
+sessions:
+  market_open: "09:15"
+  no_new_orders_after: "15:00"
+  square_off_time: "15:15"
+  market_close: "15:30"

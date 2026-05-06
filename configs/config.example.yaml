@@ -1,0 +1,36 @@
+# config.example.yaml — copy to configs/default.yaml and customise.
+# Do NOT commit sensitive values. Use environment variables for secrets.
+
+app:
+  env: development           # development | staging | production
+  trading_mode: backtest     # backtest | paper | live
+  live_trading_enabled: false   # NEVER set to true here; use env var LIVE_TRADING_ENABLED
+  global_kill_switch: true   # Keep true until you are ready to trade
+
+universe:
+  exchange: NSE
+  symbols:
+    - RELIANCE
+    - HDFCBANK
+    - ICICIBANK
+    - INFY
+    - TCS
+
+risk:
+  max_daily_loss: 1000          # INR — stop all orders if loss exceeds this
+  max_order_value: 10000        # INR — single order cap
+  max_open_positions: 3
+  max_orders_per_second: 1
+  market_data_stale_seconds: 5
+
+costs:
+  brokerage_per_order: 20       # Zerodha flat fee in INR
+  slippage_bps_normal: 2        # basis points, normal market conditions
+  slippage_bps_conservative: 5  # conservative assumption for backtests
+  slippage_bps_stress: 10       # stress scenario
+
+sessions:
+  market_open: "09:15"
+  no_new_orders_after: "15:00"
+  square_off_time: "15:15"
+  market_close: "15:30"

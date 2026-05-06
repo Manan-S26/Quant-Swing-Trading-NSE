@@ -450,18 +450,106 @@ objects; the risk engine and order manager handle the rest.
 
 ---
 
+## Milestone 9: Zerodha Historical Data Download
+
+### What was added
+
+- **`scripts/download_zerodha_historical.py`** — CLI to download candle data from Zerodha into Parquet files.
+- **`scripts/zerodha_login_helper.py`** — Interactive helper to generate a daily Zerodha access token.
+- **`src/trading_engine/data/zerodha_downloader.py`** — Reusable download orchestration (`DownloadConfig`, `DownloadResult`, `run_download`).
+- **`src/trading_engine/broker/zerodha/login.py`** — Login helpers (`get_login_url`, `exchange_request_token`, `update_env_file`, `validate_credentials`).
+- All Zerodha APIs used are **read-only**. No orders are placed, modified, or cancelled.
+- The download script **refuses to run** if `LIVE_TRADING_ENABLED=true`.
+
+### Step 1: Create Kite Connect credentials
+
+1. Go to [https://developers.kite.trade](https://developers.kite.trade) and create an app.
+2. Copy your **API Key** and **API Secret**.
+3. Set the redirect URL to `https://127.0.0.1` (or any URL you can view in the browser).
+
+### Step 2: Configure `.env`
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```
+ZERODHA_API_KEY=your_api_key
+ZERODHA_API_SECRET=your_api_secret
+# Leave ZERODHA_ACCESS_TOKEN blank — the login helper sets it.
+ZERODHA_ACCESS_TOKEN=
+```
+
+### Step 3: Generate a daily access token
+
+Zerodha access tokens expire at the end of each trading day. Run this each morning:
+
+```bash
+python3 scripts/zerodha_login_helper.py
+```
+
+Follow the prompts: open the URL, log in, copy the `request_token` from the redirect URL, and paste it. The script prints your new access token.
+
+To update `.env` automatically:
+
+```bash
+python3 scripts/zerodha_login_helper.py --write-env
+```
+
+### Step 4: Download historical data
+
+**Dry run (no API calls):**
+
+```bash
+python3 scripts/download_zerodha_historical.py \
+  --config configs/default.yaml \
+  --interval 5minute \
+  --from-date 2026-01-01 \
+  --to-date 2026-01-31 \
+  --dry-run
+```
+
+**Download specific symbols:**
+
+```bash
+python3 scripts/download_zerodha_historical.py \
+  --config configs/default.yaml \
+  --interval 5minute \
+  --from-date 2026-01-01 \
+  --to-date 2026-01-31 \
+  --symbols RELIANCE INFY TCS
+```
+
+**Download full universe:**
+
+```bash
+python3 scripts/download_zerodha_historical.py \
+  --config configs/default.yaml \
+  --interval 5minute \
+  --from-date 2026-01-01 \
+  --to-date 2026-01-31
+```
+
+### Where Parquet files are saved
+
+```
+data/
+  candles/
+    NSE/
+      RELIANCE_5minute.parquet
+      INFY_5minute.parquet
+      TCS_5minute.parquet
+```
+
+The root directory is controlled by `DATA_DIR` in `.env` (default: `./data`).
+
+---
+
 ## Next milestone
 
-**Milestone 4: Historical data pipeline**
-
-- Instrument universe config (YAML-driven symbol list)
-- Historical candle downloader using `ZerodhaBroker.get_historical_data()`
-- Store candles as Parquet files (pandas)
-- Metadata index in database (table: `historical_candles_metadata`)
-- Data validation: missing candles, duplicates, bad prices, corporate action notes
-- Tests with fake candle data — no real Zerodha calls
-
-See `docs/05_claude_prompt_pack.md` (Prompt 4 — historical data) for context.
+**Milestone 10: Opening Range Breakout strategy**
 
 ---
 

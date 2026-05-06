@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     max_trades_per_day: int = Field(default=20, gt=0)
     order_rate_limit_per_second: int = Field(default=1, gt=0)
 
+    # Data paths and historical download defaults
+    data_dir: str = Field(default="./data")
+    historical_interval: str = Field(default="5minute")
+    historical_from_date: str = Field(default="")
+    historical_to_date: str = Field(default="")
+
     def __repr__(self) -> str:
         # Secrets are intentionally excluded from repr and str.
         return (

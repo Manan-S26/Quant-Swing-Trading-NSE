@@ -22,6 +22,64 @@ A personal Zerodha-connected Indian equity intraday trading engine.
 
 ## Current milestone
 
+**Milestone 6 — Opening Range Breakout Strategy** (complete)
+
+Added the first production strategy: Opening Range Breakout (ORB) in backtest-only mode.
+No live trading, no Zerodha API calls, no real order placement.
+
+**What ORB does:**
+
+The strategy records the high and low of the first N minutes of the NSE session
+(the "opening range"). Once the range closes, it enters LONG if price breaks above
+the opening range high. Exits are triggered by stop-loss, profit target, or
+square-off time.
+
+**Current assumptions (v1):**
+- Long-only — downside breakdowns are ignored.
+- MARKET order entry (fills at bar close in the backtester).
+- Entry price assumed = bar.close (optimistic fill assumption; consistent with `SimulatedBroker`).
+- Stop price = opening range low − optional stop buffer.
+- Target = entry + `target_r_multiple` × risk-per-share.
+- If stop and target are both touched in the same bar, stop-loss is assumed (conservative).
+- One entry per symbol per day by default (`allow_reentry=False`).
+- State resets automatically at the start of each new trading day.
+- Multiple symbols maintain fully independent state.
+
+**Key configuration (`ORBConfig`):**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `opening_range_minutes` | 15 | Minutes after 09:15 that define the OR |
+| `quantity` | 1 | Shares per signal |
+| `target_r_multiple` | 2.0 | Target as multiple of initial risk |
+| `stop_buffer_bps` | 0 | Extra bps below OR low for stop |
+| `entry_buffer_bps` | 0 | Extra bps above OR high for trigger |
+| `square_off_time` | 15:15 | Time-based exit |
+| `allow_reentry` | False | Re-enter after exit on same day |
+
+**Intentionally not supported yet:**
+- Short-side breakdowns (`long_only=True` is enforced; raises `NotImplementedError` if set to False)
+- SL/SL-M order types (engine raises `UnsupportedOrderTypeError`)
+- Fill confirmation callbacks (engine does not yet call `strategy.on_order_update`)
+- Risk engine limits (placeholder `_risk_check()` always approves)
+
+No Zerodha SDK is imported anywhere in the strategies package.
+
+```bash
+# Run all tests (482 total, all pass)
+python3 -m pytest -v
+
+# Style checks
+python3 -m ruff check src tests scripts
+python3 -m ruff format --check src tests scripts
+
+# Optional: run ORB backtest on local Parquet candle data
+# (download data first with HistoricalDataDownloader)
+python3 scripts/run_orb_backtest.py
+```
+
+---
+
 **Milestone 5 — Event-Driven Backtesting Engine** (complete)
 
 Added a complete offline backtesting framework. No live broker, no Zerodha calls,

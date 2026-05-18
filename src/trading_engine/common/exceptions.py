@@ -45,3 +45,15 @@ class OrderNotFoundError(TradingEngineError):
 
 class BrokerMappingError(TradingEngineError):
     """Raised when a raw broker response cannot be mapped to an internal model."""
+
+
+class ManualApprovalRequired(TradingEngineError):
+    """Raised when an order requires manual operator approval before proceeding.
+
+    The approval_id attribute carries the ID of the pending ApprovalRequest
+    so the caller can poll or surface it via the dashboard.
+    """
+
+    def __init__(self, message: str, approval_id: str) -> None:
+        super().__init__(message)
+        self.approval_id = approval_id

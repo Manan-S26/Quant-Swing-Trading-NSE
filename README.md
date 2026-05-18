@@ -865,6 +865,108 @@ data ingestion only.
 
 ---
 
+## Milestone 15: Live Execution Safety Layer and Manual Approval Mode
+
+Creates the safety and approval infrastructure that all future live order
+execution must pass through. **Real order placement is still not implemented.**
+`LIVE_TRADING_ENABLED` remains `false`.
+
+### What was added
+
+```
+src/trading_engine/live_execution/
+├── __init__.py
+├── models.py      # ApprovalMode, ApprovalStatus, ApprovalRequest, ApprovalDecision
+├── approvals.py   # LiveOrderApprovalGate
+├── dry_run.py     # DryRunExecutor, DryRunOrderPreview
+├── audit.py       # ApprovalAuditLogger (JSONL)
+└── safety.py      # LiveExecutionSafetyGuard
+
+src/trading_engine/common/exceptions.py  — added ManualApprovalRequired
+
+scripts/live_order_dry_run.py  — CLI dry-run preview tool
+```
+
+### Approval modes
+
+| Mode | Behaviour |
+|---|---|
+| `AUTO_PAPER` | Instantly approves; suitable for paper trading only. No real orders. |
+| `MANUAL_APPROVE` | Creates a `PENDING` request; raises `ManualApprovalRequired`. Operator must call `approve()` or `reject()`. |
+| `AUTO_LIVE` | **Raises `SafetyError`** — not implemented in this milestone. |
+
+### Why AUTO_LIVE is intentionally blocked
+
+`AUTO_LIVE` exists as an enum value to document the intended future design,
+but any attempt to use it calls `LiveExecutionSafetyGuard.assert_order_placement_blocked_for_now()`
+which always raises `SafetyError`.  Real order execution requires a dedicated
+future milestone to wire up `ZerodhaBroker.place_order()`, which is still
+unimplemented.
+
+### Dry-run previews
+
+`DryRunExecutor.preview()` shows what would happen to an `OrderIntent`:
+- Runs the risk engine (if provided).
+- Queries the approval gate.
+- Returns a `DryRunOrderPreview` with `to_dict()` for JSON output.
+- Never touches a broker. Never calls Zerodha.
+
+### Audit logging
+
+`ApprovalAuditLogger` writes JSON-lines records to a file:
+- One line per `log_request()`, `log_decision()`, `log_dry_run()` call.
+- Parent directories created automatically.
+- No secrets logged. No database required.
+
+### Safety guard
+
+`LiveExecutionSafetyGuard` provides two methods:
+- `assert_order_placement_blocked_for_now()` — **always raises `SafetyError`** in this milestone.
+- `assert_live_execution_allowed()` — checks `LIVE_TRADING_ENABLED` and kill switch status.
+
+### Example — CLI dry-run preview
+
+```bash
+python3 scripts/live_order_dry_run.py \
+  --symbol RELIANCE \
+  --side BUY \
+  --quantity 1 \
+  --order-type MARKET \
+  --strategy-id manual_dry_run
+```
+
+Output (JSON, no Zerodha calls, no credentials required):
+```json
+{
+  "symbol": "RELIANCE",
+  "side": "BUY",
+  "quantity": 1,
+  "order_type": "MARKET",
+  "approval_status": "approved",
+  "message": "DRY RUN: BUY 1 RELIANCE @ MARKET — risk: PASS, approval gate: APPROVED. No order placed."
+}
+```
+
+### Confirmation
+
+- Real order placement is **not** implemented.
+- `ZerodhaBroker.place_order()` still raises `LiveTradingDisabledError`.
+- `modify_order` and `cancel_order` remain unimplemented.
+- `LIVE_TRADING_ENABLED` defaults to `false`.
+
+### Tests
+
+| File | Coverage |
+|---|---|
+| `tests/unit/live_execution/test_models.py` | ApprovalRequest/Decision validation, serialisation |
+| `tests/unit/live_execution/test_approvals.py` | All three modes, approve/reject/check_decision |
+| `tests/unit/live_execution/test_dry_run.py` | Risk integration, approval gate, JSON output |
+| `tests/unit/live_execution/test_audit.py` | JSONL writes, multi-record, nested dirs |
+| `tests/unit/live_execution/test_safety.py` | Order placement always blocked, prerequisites check |
+| `tests/unit/scripts/test_live_order_dry_run.py` | CLI parsing, validation, JSON output, no Zerodha |
+
+---
+
 ## Next milestone
 
 *TBD*

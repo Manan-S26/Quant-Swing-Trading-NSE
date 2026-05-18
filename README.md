@@ -706,9 +706,80 @@ streamlit run scripts/dashboard.py                      # opens dashboard
 
 ---
 
+## Milestone 13: Strategy Analytics and Validation Gates
+
+Extended the backtest engine with richer performance analytics and a configurable validation gate system.
+
+### Analytics additions (`trading_engine/backtest/metrics.py`)
+
+`BacktestMetrics` now includes:
+
+| Field | Description |
+|---|---|
+| `average_trade_pnl` | Mean P&L per completed trade |
+| `best_trade_pnl` | Single best trade P&L |
+| `worst_trade_pnl` | Single worst trade P&L |
+| `sharpe_ratio` | Annualised Sharpe ratio (bar-to-bar returns × √252); `None` if flat equity or < 2 bars |
+| `sortino_ratio` | Annualised Sortino ratio (downside deviation only); `None` if no losing periods |
+| `cagr` | Compound Annual Growth Rate; `None` if period < 1 day or missing timestamps |
+
+### Validation gates (`trading_engine/validation/`)
+
+```
+src/trading_engine/validation/
+├── __init__.py
+├── models.py       # ValidationGateConfig, ValidationGateFailure, ValidationResult
+└── validator.py    # StrategyValidator
+```
+
+`ValidationGateConfig` accepts thresholds for 7 gates:
+
+```python
+ValidationGateConfig(
+    min_trades=30,
+    min_sharpe=0.5,
+    max_drawdown_pct=0.20,
+    min_win_rate=0.40,
+    min_profit_factor=1.2,
+    min_expectancy=None,
+    max_total_fees_pct_of_pnl=0.30,
+)
+```
+
+Gates with `None` values are skipped. A gate fails if the corresponding metric is also `None` (missing data counts as failure).
+
+### BacktestEngine integration
+
+Pass an optional `StrategyValidator` when constructing `BacktestEngine`:
+
+```python
+validator = StrategyValidator(ValidationGateConfig(min_trades=30, min_sharpe=0.5))
+engine = BacktestEngine(..., strategy_validator=validator)
+report = engine.run()
+
+if report.validation_result.passed:
+    print("Strategy passed all gates")
+else:
+    for failure in report.validation_result.failed_gates:
+        print(f"  FAIL {failure.gate_name}: {failure.message}")
+```
+
+`BacktestReport.to_dict()` includes `"validation_result"` (or `null` when no validator was provided).
+
+### Tests
+
+| File | Coverage |
+|---|---|
+| `tests/unit/backtest/test_metrics.py` | Sharpe, Sortino, CAGR, per-trade stats |
+| `tests/unit/validation/test_models.py` | Config validation, serialisation |
+| `tests/unit/validation/test_validator.py` | Each gate: pass/fail/missing-metric |
+| `tests/unit/backtest/test_engine_validation.py` | BacktestEngine + StrategyValidator integration |
+
+---
+
 ## Next milestone
 
-**Milestone 13: Strategy analytics and validation gates**
+*TBD*
 
 ---
 

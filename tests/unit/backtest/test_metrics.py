@@ -154,3 +154,118 @@ class TestProfitFactor:
         m = calculate_backtest_metrics(_D("100000"), _D("100500"), [], fills)
         # gross profit=1000, gross loss=500 → pf=2
         assert m.profit_factor == _D("2")
+
+
+# ---------------------------------------------------------------------------
+# Milestone 13 — new metric fields
+# ---------------------------------------------------------------------------
+
+
+class TestAverageAndBestWorstTrade:
+    def test_average_trade_pnl(self) -> None:
+        # BUY 10 @ 500, SELL 10 @ 600 → pnl=1000
+        # BUY 10 @ 500, SELL 10 @ 450 → pnl=-500
+        # average = (1000 + -500) / 2 = 250
+        fills = [
+            _fill(Side.BUY, 10, _D("500")),
+            _fill(Side.SELL, 10, _D("600")),
+            _fill(Side.BUY, 10, _D("500")),
+            _fill(Side.SELL, 10, _D("450")),
+        ]
+        m = calculate_backtest_metrics(_D("100000"), _D("100500"), [], fills)
+        assert m.average_trade_pnl == _D("250")
+
+    def test_best_trade_pnl(self) -> None:
+        fills = [
+            _fill(Side.BUY, 10, _D("500")),
+            _fill(Side.SELL, 10, _D("600")),  # +1000
+            _fill(Side.BUY, 10, _D("500")),
+            _fill(Side.SELL, 10, _D("450")),  # -500
+        ]
+        m = calculate_backtest_metrics(_D("100000"), _D("100500"), [], fills)
+        assert m.best_trade_pnl == _D("1000")
+
+    def test_worst_trade_pnl(self) -> None:
+        fills = [
+            _fill(Side.BUY, 10, _D("500")),
+            _fill(Side.SELL, 10, _D("600")),  # +1000
+            _fill(Side.BUY, 10, _D("500")),
+            _fill(Side.SELL, 10, _D("450")),  # -500
+        ]
+        m = calculate_backtest_metrics(_D("100000"), _D("100500"), [], fills)
+        assert m.worst_trade_pnl == _D("-500")
+
+    def test_no_trades_average_is_zero(self) -> None:
+        m = calculate_backtest_metrics(_D("100000"), _D("100000"), [], [])
+        assert m.average_trade_pnl == _D("0")
+        assert m.best_trade_pnl == _D("0")
+        assert m.worst_trade_pnl == _D("0")
+
+
+class TestSharpeRatio:
+    def test_flat_equity_returns_none(self) -> None:
+        # All returns are zero — std_dev=0, Sharpe undefined
+        curve = _curve(100000, 100000, 100000, 100000)
+        m = calculate_backtest_metrics(_D("100000"), _D("100000"), curve, [])
+        assert m.sharpe_ratio is None
+
+    def test_single_point_returns_none(self) -> None:
+        curve = [(datetime(2024, 1, 15, 9, 15), _D("100000"))]
+        m = calculate_backtest_metrics(_D("100000"), _D("100000"), curve, [])
+        assert m.sharpe_ratio is None
+
+    def test_volatile_equity_returns_float(self) -> None:
+        # Alternating up/down equity gives a non-trivial Sharpe
+        curve = _curve(100000, 110000, 105000, 115000, 112000)
+        m = calculate_backtest_metrics(_D("100000"), _D("112000"), curve, [])
+        assert m.sharpe_ratio is not None
+        assert isinstance(m.sharpe_ratio, float)
+
+    def test_empty_equity_curve_returns_none(self) -> None:
+        m = calculate_backtest_metrics(_D("100000"), _D("100000"), [], [])
+        assert m.sharpe_ratio is None
+
+
+class TestSortinoRatio:
+    def test_no_losses_returns_none(self) -> None:
+        # Monotonically increasing equity — no downside returns
+        curve = _curve(100000, 101000, 102000, 103000)
+        m = calculate_backtest_metrics(_D("100000"), _D("103000"), curve, [])
+        assert m.sortino_ratio is None  # undefined (infinite)
+
+    def test_with_losses_returns_float(self) -> None:
+        curve = _curve(100000, 110000, 95000, 108000, 100000)
+        m = calculate_backtest_metrics(_D("100000"), _D("100000"), curve, [])
+        assert m.sortino_ratio is not None
+
+
+class TestCAGR:
+    def test_cagr_none_without_timestamps(self) -> None:
+        m = calculate_backtest_metrics(_D("100000"), _D("110000"), [], [])
+        assert m.cagr is None
+
+    def test_cagr_none_for_too_short_period(self) -> None:
+        start = datetime(2024, 1, 15, 9, 15)
+        end = datetime(2024, 1, 15, 9, 16)  # 1 minute
+        m = calculate_backtest_metrics(
+            _D("100000"), _D("110000"), [], [], start_time=start, end_time=end
+        )
+        assert m.cagr is None
+
+    def test_cagr_returns_float_for_full_year(self) -> None:
+        start = datetime(2023, 1, 1)
+        end = datetime(2024, 1, 1)
+        m = calculate_backtest_metrics(
+            _D("100000"), _D("110000"), [], [], start_time=start, end_time=end
+        )
+        assert m.cagr is not None
+        assert isinstance(m.cagr, float)
+        assert abs(m.cagr - 0.10) < 0.01  # ≈ 10%
+
+    def test_cagr_none_for_zero_initial_cash(self) -> None:
+        start = datetime(2023, 1, 1)
+        end = datetime(2024, 1, 1)
+        m = calculate_backtest_metrics(
+            _D("0"), _D("110000"), [], [], start_time=start, end_time=end
+        )
+        assert m.cagr is None

@@ -7,10 +7,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trading_engine.backtest.metrics import BacktestMetrics
 from trading_engine.domain.models import RiskDecision, TradeFill
+
+if TYPE_CHECKING:
+    pass
 
 
 def _json_default(obj: Any) -> Any:
@@ -27,16 +30,18 @@ class BacktestReport:
     """Full results of a completed backtest run.
 
     Fields:
-        strategy_id:  Identifier of the strategy that was run.
-        symbols:      List of symbols traded.
-        start_time:   First bar timestamp.
-        end_time:     Last bar timestamp.
-        initial_cash: Starting portfolio cash.
-        final_equity: Ending portfolio equity.
-        metrics:      BacktestMetrics summary.
-        fills:        All TradeFill objects recorded.
-        equity_curve: List of (timestamp, equity) pairs.
-        parameters:   Arbitrary strategy / run parameters for reproducibility.
+        strategy_id:       Identifier of the strategy that was run.
+        symbols:           List of symbols traded.
+        start_time:        First bar timestamp.
+        end_time:          Last bar timestamp.
+        initial_cash:      Starting portfolio cash.
+        final_equity:      Ending portfolio equity.
+        metrics:           BacktestMetrics summary.
+        fills:             All TradeFill objects recorded.
+        equity_curve:      List of (timestamp, equity) pairs.
+        parameters:        Arbitrary strategy / run parameters for reproducibility.
+        rejected_risk_decisions: Risk-rejected decisions recorded during the run.
+        validation_result: Optional StrategyValidator result attached after the run.
     """
 
     strategy_id: str
@@ -50,6 +55,7 @@ class BacktestReport:
     equity_curve: list[tuple[datetime, Decimal]] = field(default_factory=list)
     parameters: dict[str, Any] = field(default_factory=dict)
     rejected_risk_decisions: list[RiskDecision] = field(default_factory=list)
+    validation_result: Any | None = None  # ValidationResult | None (avoid circular import)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serialisable dict representation."""
@@ -75,6 +81,13 @@ class BacktestReport:
                 "average_loss": str(self.metrics.average_loss),
                 "expectancy": str(self.metrics.expectancy),
                 "total_fees": str(self.metrics.total_fees),
+                # New Milestone 13 fields
+                "average_trade_pnl": str(self.metrics.average_trade_pnl),
+                "best_trade_pnl": str(self.metrics.best_trade_pnl),
+                "worst_trade_pnl": str(self.metrics.worst_trade_pnl),
+                "sharpe_ratio": self.metrics.sharpe_ratio,
+                "sortino_ratio": self.metrics.sortino_ratio,
+                "cagr": self.metrics.cagr,
             },
             "fills": [
                 {
@@ -102,6 +115,9 @@ class BacktestReport:
                 }
                 for d in self.rejected_risk_decisions
             ],
+            "validation_result": (
+                self.validation_result.to_dict() if self.validation_result is not None else None
+            ),
         }
 
     def save_json(self, path: str | Path) -> None:

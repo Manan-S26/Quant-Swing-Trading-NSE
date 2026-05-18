@@ -6,14 +6,17 @@ All calculations are defensive against edge cases (no trades, zero denominators)
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 
 from trading_engine.domain.enums import Side
 from trading_engine.domain.models import TradeFill
 
 _ZERO = Decimal("0")
+_TRADING_DAYS_PER_YEAR = 252
 
 
 @dataclass
@@ -34,6 +37,13 @@ class BacktestMetrics:
     average_loss: Decimal = _ZERO  # Absolute value
     expectancy: Decimal = _ZERO  # Expected P&L per trade
     total_fees: Decimal = _ZERO
+    # New fields (Milestone 13)
+    average_trade_pnl: Decimal = _ZERO
+    best_trade_pnl: Decimal = _ZERO
+    worst_trade_pnl: Decimal = _ZERO
+    sharpe_ratio: float | None = None  # annualised; None when insufficient data
+    sortino_ratio: float | None = None  # annualised; None when insufficient data
+    cagr: float | None = None  # compound annual growth rate; None when period < 1 day
 
 
 def calculate_backtest_metrics(
@@ -41,6 +51,8 @@ def calculate_backtest_metrics(
     final_equity: Decimal,
     equity_curve: Sequence[tuple[object, Decimal]],
     fills: Sequence[TradeFill],
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
 ) -> BacktestMetrics:
     """Compute BacktestMetrics from a completed run.
 
@@ -49,6 +61,8 @@ def calculate_backtest_metrics(
         final_equity:  Ending portfolio equity.
         equity_curve:  List of (timestamp, equity) pairs in order.
         fills:         All TradeFill objects from the run.
+        start_time:    First bar timestamp (for CAGR).
+        end_time:      Last bar timestamp (for CAGR).
 
     Returns:
         Populated BacktestMetrics.
@@ -118,6 +132,23 @@ def calculate_backtest_metrics(
     loss_rate = Decimal("1") - metrics.win_rate
     metrics.expectancy = metrics.win_rate * metrics.average_win - loss_rate * metrics.average_loss
 
+    # Per-trade summary stats
+    if trade_pnls:
+        metrics.average_trade_pnl = sum(trade_pnls, _ZERO) / Decimal(str(len(trade_pnls)))
+        metrics.best_trade_pnl = max(trade_pnls)
+        metrics.worst_trade_pnl = min(trade_pnls)
+
+    # Sharpe and Sortino from equity curve returns
+    metrics.sharpe_ratio, metrics.sortino_ratio = _compute_risk_ratios(equity_curve)
+
+    # CAGR
+    metrics.cagr = _compute_cagr(
+        initial_cash=initial_cash,
+        final_equity=final_equity,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
     return metrics
 
 
@@ -132,3 +163,80 @@ def _compute_cost_basis(buy_queue: list[tuple[int, Decimal]], sell_qty: int) -> 
         cost += Decimal(str(used)) * price
         remaining -= used
     return cost
+
+
+def _compute_risk_ratios(
+    equity_curve: Sequence[tuple[object, Decimal]],
+) -> tuple[float | None, float | None]:
+    """Compute annualised Sharpe and Sortino ratios from an equity curve.
+
+    Returns (sharpe, sortino); both None when fewer than 2 data points.
+    Assumes bar-to-bar returns; annualises using sqrt(252).
+    """
+    equities = [float(e) for _, e in equity_curve]
+    if len(equities) < 2:
+        return None, None
+
+    returns: list[float] = []
+    for i in range(1, len(equities)):
+        prev = equities[i - 1]
+        if prev == 0.0:
+            returns.append(0.0)
+        else:
+            returns.append((equities[i] - prev) / prev)
+
+    n = len(returns)
+    if n < 2:
+        return None, None
+
+    mean_r = sum(returns) / n
+    variance = sum((r - mean_r) ** 2 for r in returns) / (n - 1)
+    std_dev = math.sqrt(variance) if variance > 0 else 0.0
+
+    ann_factor = math.sqrt(_TRADING_DAYS_PER_YEAR)
+    sharpe = (mean_r / std_dev * ann_factor) if std_dev > 0 else None
+
+    # Sortino: downside deviation only
+    downside_returns = [r for r in returns if r < 0]
+    if downside_returns:
+        downside_var = sum(r**2 for r in downside_returns) / (n - 1)
+        downside_std = math.sqrt(downside_var)
+        sortino = (mean_r / downside_std * ann_factor) if downside_std > 0 else None
+    else:
+        sortino = None  # No losing periods — undefined (infinite)
+
+    return sharpe, sortino
+
+
+def _compute_cagr(
+    initial_cash: Decimal,
+    final_equity: Decimal,
+    start_time: datetime | None,
+    end_time: datetime | None,
+) -> float | None:
+    """Compute CAGR given start/end equity and timestamps.
+
+    Returns None if:
+    - start_time or end_time is None
+    - period is less than 1 day
+    - initial_cash is zero
+    """
+    if start_time is None or end_time is None:
+        return None
+    if initial_cash <= _ZERO:
+        return None
+
+    delta = end_time - start_time
+    days = delta.total_seconds() / 86400.0
+    if days < 1.0:
+        return None
+
+    years = days / 365.25
+    ratio = float(final_equity) / float(initial_cash)
+    if ratio <= 0:
+        return None
+
+    try:
+        return ratio ** (1.0 / years) - 1.0
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return None

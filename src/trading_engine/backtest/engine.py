@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from trading_engine.backtest.data_feed import HistoricalDataFeed
 from trading_engine.backtest.metrics import calculate_backtest_metrics
@@ -26,6 +26,9 @@ from trading_engine.risk.engine import RiskEngine
 from trading_engine.strategy.base import Strategy, StrategyContext
 from trading_engine.strategy.signals import OrderIntent
 
+if TYPE_CHECKING:
+    from trading_engine.validation.validator import StrategyValidator
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,16 +36,18 @@ class BacktestEngine:
     """Runs a strategy against historical data and returns a BacktestReport.
 
     Args:
-        strategy:          Strategy instance to run.
-        data_feed:         HistoricalDataFeed providing bars in order.
-        portfolio:         BacktestPortfolio tracking cash and positions.
-        simulated_broker:  SimulatedBroker that executes order intents.
-        initial_cash:      Starting cash (used for metrics calculation).
-        strategy_id:       Identifier embedded in the BacktestReport.
-        symbols:           Symbols being traded (embedded in the report).
-        parameters:        Arbitrary metadata recorded in the report.
-        risk_engine:       Optional RiskEngine. If None, all intents are approved.
-        logger:            Optional logger override.
+        strategy:           Strategy instance to run.
+        data_feed:          HistoricalDataFeed providing bars in order.
+        portfolio:          BacktestPortfolio tracking cash and positions.
+        simulated_broker:   SimulatedBroker that executes order intents.
+        initial_cash:       Starting cash (used for metrics calculation).
+        strategy_id:        Identifier embedded in the BacktestReport.
+        symbols:            Symbols being traded (embedded in the report).
+        parameters:         Arbitrary metadata recorded in the report.
+        risk_engine:        Optional RiskEngine. If None, all intents are approved.
+        strategy_validator: Optional StrategyValidator. If provided, validate() is
+                            called after the run and the result attached to the report.
+        logger:             Optional logger override.
     """
 
     def __init__(
@@ -56,6 +61,7 @@ class BacktestEngine:
         symbols: list[str],
         parameters: dict[str, Any] | None = None,
         risk_engine: RiskEngine | None = None,
+        strategy_validator: StrategyValidator | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self._strategy = strategy
@@ -67,6 +73,7 @@ class BacktestEngine:
         self._symbols = symbols
         self._parameters = parameters or {}
         self._risk_engine = risk_engine
+        self._strategy_validator = strategy_validator
         self._logger = logger or logging.getLogger(__name__)
 
     def run(self) -> BacktestReport:
@@ -139,6 +146,8 @@ class BacktestEngine:
             final_equity=final_equity,
             equity_curve=self._portfolio.equity_curve,
             fills=fills,
+            start_time=start_time,
+            end_time=end_time,
         )
 
         self._logger.info(
@@ -148,7 +157,7 @@ class BacktestEngine:
             str(metrics.total_return),
         )
 
-        return BacktestReport(
+        report = BacktestReport(
             strategy_id=self._strategy_id,
             symbols=self._symbols,
             start_time=start_time,
@@ -161,6 +170,18 @@ class BacktestEngine:
             parameters=self._parameters,
             rejected_risk_decisions=rejected_decisions,
         )
+
+        # Optional post-run validation gate
+        if self._strategy_validator is not None:
+            validation_result = self._strategy_validator.validate(report)
+            report.validation_result = validation_result
+            self._logger.info(
+                "Validation: passed=%s failed_gates=%d",
+                validation_result.passed,
+                len(validation_result.failed_gates),
+            )
+
+        return report
 
     # ------------------------------------------------------------------
     # Risk check seam

@@ -27,6 +27,22 @@ Usage examples:
     --interval 5minute \\
     --from-date 2026-01-01 \\
     --to-date 2026-01-31
+
+  # Chunked download (auto-splits long ranges for intraday intervals):
+  python3 scripts/download_zerodha_historical.py \\
+    --config configs/default.yaml \\
+    --interval minute \\
+    --from-date 2025-01-01 \\
+    --to-date 2025-12-31 \\
+    --chunk-days 60
+
+  # Overwrite existing Parquet instead of merging:
+  python3 scripts/download_zerodha_historical.py \\
+    --config configs/default.yaml \\
+    --interval minute \\
+    --from-date 2026-01-01 \\
+    --to-date 2026-01-31 \\
+    --replace
 """
 
 from __future__ import annotations
@@ -43,12 +59,15 @@ sys.path.insert(0, str(ROOT / "src"))
 from trading_engine.common.config import load_settings  # noqa: E402
 from trading_engine.data.universe import load_universe_config  # noqa: E402
 from trading_engine.data.zerodha_downloader import (  # noqa: E402
+    INTRADAY_INTERVALS,
     DownloadConfig,
     assert_live_trading_disabled,
     run_download,
+    split_date_range,
 )
 
 _DEFAULT_INTERVAL = "5minute"
+_DEFAULT_CHUNK_DAYS = 60
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -87,6 +106,21 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--dry-run",
         action="store_true",
         help="Show what would be downloaded without making API calls",
+    )
+    parser.add_argument(
+        "--chunk-days",
+        dest="chunk_days",
+        type=int,
+        default=_DEFAULT_CHUNK_DAYS,
+        help=(
+            f"Max calendar days per API request for intraday intervals "
+            f"(default: {_DEFAULT_CHUNK_DAYS}). Zerodha rejects requests over 60 days."
+        ),
+    )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Overwrite existing Parquet file instead of merging with it",
     )
     return parser.parse_args(argv)
 
@@ -176,16 +210,25 @@ def main(argv: list[str] | None = None) -> int:
         symbols=args.symbols,
         dry_run=args.dry_run,
         save=True,
+        chunk_days=args.chunk_days,
+        replace=args.replace,
     )
 
     if args.dry_run:
         print("\n[DRY RUN] No Zerodha API calls will be made.")
-        print(f"  Config:   {config_path}")
-        print(f"  Interval: {interval}")
-        print(f"  From:     {from_date.date()}")
-        print(f"  To:       {to_date.date()}")
-        print(f"  Symbols:  {config.target_symbols()}")
-        print(f"  Data dir: {data_dir}")
+        print(f"  Config:     {config_path}")
+        print(f"  Interval:   {interval}")
+        print(f"  From:       {from_date.date()}")
+        print(f"  To:         {to_date.date()}")
+        print(f"  Symbols:    {config.target_symbols()}")
+        print(f"  Data dir:   {data_dir}")
+        print(f"  Chunk days: {args.chunk_days}")
+        print(f"  Replace:    {args.replace}")
+        if interval in INTRADAY_INTERVALS:
+            chunks = split_date_range(from_date, to_date, args.chunk_days)
+            print(f"  Chunks:     {len(chunks)}")
+            for i, (c_from, c_to) in enumerate(chunks, 1):
+                print(f"    {i}: {c_from.date()} → {c_to.date()}")
         result = run_download(config, broker=None)
         result.print_summary()
         return 0

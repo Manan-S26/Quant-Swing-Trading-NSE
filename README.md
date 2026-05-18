@@ -623,6 +623,50 @@ python3 scripts/download_zerodha_historical.py \
   --to-date 2026-01-31
 ```
 
+**Chunked download for intraday intervals (>60 days):**
+
+Zerodha rejects intraday requests that span more than 60 calendar days.
+The downloader automatically splits the date range into chunks and merges
+them with any existing Parquet file so you never lose historical data.
+
+```bash
+# Download a full year of minute data — auto-split into ≤60-day chunks:
+python3 scripts/download_zerodha_historical.py \
+  --config configs/default.yaml \
+  --interval minute \
+  --from-date 2025-01-01 \
+  --to-date 2025-12-31 \
+  --chunk-days 60
+
+# Overwrite existing Parquet instead of merging:
+python3 scripts/download_zerodha_historical.py \
+  --config configs/default.yaml \
+  --interval minute \
+  --from-date 2026-01-01 \
+  --to-date 2026-01-31 \
+  --replace
+
+# Preview chunks without making any API calls:
+python3 scripts/download_zerodha_historical.py \
+  --config configs/default.yaml \
+  --interval minute \
+  --from-date 2025-01-01 \
+  --to-date 2025-12-31 \
+  --dry-run
+```
+
+**Chunked download behaviour:**
+
+| Step | What happens |
+|------|--------------|
+| Split | Date range → chunks of ≤`--chunk-days` days (default: 60) |
+| Download | Each chunk fetched sequentially from Zerodha |
+| Merge | New data concatenated with existing Parquet (skipped with `--replace`) |
+| Dedup | Duplicate timestamps removed (last-write wins on overlap) |
+| Sort | Final DataFrame sorted ascending by timestamp |
+| Validate | OHLCV validation run on the merged result |
+| Save | Single Parquet write to `DATA_DIR/candles/{exchange}/{symbol}/{interval}.parquet` |
+
 ### Where Parquet files are saved
 
 ```

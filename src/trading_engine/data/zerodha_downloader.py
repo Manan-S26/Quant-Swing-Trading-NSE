@@ -4,6 +4,8 @@ Keeps scripts thin by providing all orchestration here:
   - Safety guard (LIVE_TRADING_ENABLED must be False)
   - Symbol → instrument_token mapping
   - Download orchestration via HistoricalDataDownloader
+  - Chunked date-range splitting for intraday intervals (Zerodha ≤60-day limit)
+  - Merge with existing Parquet, deduplication, and sorting
   - Dry-run support
   - Clean result reporting
 
@@ -15,15 +17,62 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from trading_engine.data.historical import HistoricalDataDownloader
 from trading_engine.data.universe import UniverseConfig
-from trading_engine.data.validation import DataValidationReport
+from trading_engine.data.validation import DataValidationReport, validate_ohlcv_dataframe
 
 logger = logging.getLogger(__name__)
+
+# Zerodha limits intraday (sub-day) intervals to 60-day windows per request.
+INTRADAY_INTERVALS = {
+    "minute",
+    "3minute",
+    "5minute",
+    "10minute",
+    "15minute",
+    "30minute",
+    "60minute",
+}
+
+
+# ---------------------------------------------------------------------------
+# Date-range chunking
+# ---------------------------------------------------------------------------
+
+
+def split_date_range(
+    from_date: datetime,
+    to_date: datetime,
+    chunk_days: int,
+) -> list[tuple[datetime, datetime]]:
+    """Split a date range into chunks of at most *chunk_days* calendar days.
+
+    Args:
+        from_date:  Start of the full date range (inclusive).
+        to_date:    End of the full date range (inclusive).
+        chunk_days: Maximum size of each chunk in calendar days.
+
+    Returns:
+        List of (chunk_from, chunk_to) tuples that together cover the full range.
+
+    Raises:
+        ValueError: If chunk_days is not positive.
+    """
+    if chunk_days <= 0:
+        raise ValueError(f"chunk_days must be positive, got {chunk_days}")
+    chunks: list[tuple[datetime, datetime]] = []
+    current = from_date
+    while current <= to_date:
+        end = min(current + timedelta(days=chunk_days - 1), to_date)
+        chunks.append((current, end))
+        current = end + timedelta(days=1)
+    return chunks
 
 
 # ---------------------------------------------------------------------------
@@ -36,14 +85,16 @@ class DownloadConfig:
     """All parameters for a historical data download run.
 
     Args:
-        universe:     Universe defining the target symbol list and exchange.
-        interval:     Candle interval, e.g. "5minute", "minute", "day".
-        from_date:    Start of the download date range.
-        to_date:      End of the download date range.
-        data_dir:     Root directory for Parquet storage.
-        symbols:      If non-empty, download only these symbols (overrides universe).
-        dry_run:      If True, log what would be done without calling the broker.
-        save:         If True, write Parquet files (ignored when dry_run=True).
+        universe:    Universe defining the target symbol list and exchange.
+        interval:    Candle interval, e.g. "5minute", "minute", "day".
+        from_date:   Start of the download date range.
+        to_date:     End of the download date range.
+        data_dir:    Root directory for Parquet storage.
+        symbols:     If non-empty, download only these symbols (overrides universe).
+        dry_run:     If True, log what would be done without calling the broker.
+        save:        If True, write Parquet files (ignored when dry_run=True).
+        chunk_days:  Maximum calendar days per API request for intraday intervals.
+        replace:     If True, overwrite any existing Parquet instead of merging.
     """
 
     universe: UniverseConfig
@@ -54,6 +105,8 @@ class DownloadConfig:
     symbols: list[str] = field(default_factory=list)
     dry_run: bool = False
     save: bool = True
+    chunk_days: int = 60
+    replace: bool = False
 
     def target_symbols(self) -> list[str]:
         """Return the effective symbol list for this download."""
@@ -76,6 +129,7 @@ class DownloadResult:
     validation_reports: dict[str, DataValidationReport]
     file_paths: dict[str, Path]
     dry_run: bool
+    chunks: list[tuple[datetime, datetime]] = field(default_factory=list)
 
     def print_summary(self) -> None:
         """Print a human-readable summary to stdout."""
@@ -85,6 +139,10 @@ class DownloadResult:
         print(f"  Downloaded:      {self.symbols_downloaded}")
         print(f"  No token found:  {self.symbols_missing_token}")
         print(f"  Failed:          {self.symbols_failed}")
+        if self.chunks:
+            print(f"  Chunks:          {len(self.chunks)}")
+            for i, (c_from, c_to) in enumerate(self.chunks, 1):
+                print(f"    {i}: {c_from.date()} → {c_to.date()}")
         if self.file_paths:
             print("  Saved files:")
             for sym, path in self.file_paths.items():
@@ -184,6 +242,13 @@ def run_download(
 ) -> DownloadResult:
     """Download historical candles for the configured symbols.
 
+    For intraday intervals the date range is automatically split into chunks of
+    at most ``config.chunk_days`` calendar days so that each API request stays
+    within Zerodha's 60-day limit.  After downloading all chunks, any existing
+    Parquet file for the same symbol/interval is loaded and merged (unless
+    ``config.replace=True``), the result is deduplicated by timestamp, sorted,
+    and saved back.
+
     Args:
         config: DownloadConfig with all parameters.
         broker: Any broker that implements get_instruments() and get_historical_data().
@@ -195,16 +260,27 @@ def run_download(
     log = logger or logging.getLogger(__name__)
     target = config.target_symbols()
     exchange_str = str(config.universe.exchange)
+    exchange = config.universe.exchange
+
+    # Determine chunk boundaries upfront (used in both dry-run and real download).
+    is_intraday = config.interval in INTRADAY_INTERVALS
+    if is_intraday:
+        chunks = split_date_range(config.from_date, config.to_date, config.chunk_days)
+    else:
+        chunks = [(config.from_date, config.to_date)]
 
     if config.dry_run:
         log.info("[DRY RUN] Would download %d symbols: %s", len(target), target)
         log.info(
-            "[DRY RUN] interval=%s from=%s to=%s data_dir=%s",
+            "[DRY RUN] interval=%s from=%s to=%s data_dir=%s chunks=%d",
             config.interval,
             config.from_date.date(),
             config.to_date.date(),
             config.data_dir,
+            len(chunks),
         )
+        for i, (c_from, c_to) in enumerate(chunks, 1):
+            log.info("[DRY RUN] Chunk %d: %s → %s", i, c_from.date(), c_to.date())
         return DownloadResult(
             symbols_requested=target,
             symbols_downloaded=[],
@@ -213,6 +289,7 @@ def run_download(
             validation_reports={},
             file_paths={},
             dry_run=True,
+            chunks=chunks,
         )
 
     # Fetch instrument list and build token map.
@@ -232,21 +309,69 @@ def run_download(
             continue  # already recorded in missing
 
         try:
-            df, report = downloader.download(
-                instrument_token=token_map[symbol],
-                symbol=symbol,
-                exchange=config.universe.exchange,
-                interval=config.interval,
-                from_date=config.from_date,
-                to_date=config.to_date,
-                save=config.save,
-            )
-            validation_reports[symbol] = report
-            downloaded.append(symbol)
-            if config.save:
-                file_paths[symbol] = downloader.get_candle_file_path(
-                    symbol, config.universe.exchange, config.interval
+            # Download all chunks without saving intermediate results.
+            chunk_dfs: list[pd.DataFrame] = []
+            for chunk_from, chunk_to in chunks:
+                df_chunk, _ = downloader.download(
+                    instrument_token=token_map[symbol],
+                    symbol=symbol,
+                    exchange=exchange,
+                    interval=config.interval,
+                    from_date=chunk_from,
+                    to_date=chunk_to,
+                    save=False,
                 )
+                if not df_chunk.empty:
+                    chunk_dfs.append(df_chunk)
+
+            # Concatenate all chunks into one DataFrame.
+            if chunk_dfs:
+                df_new = pd.concat(chunk_dfs, ignore_index=True)
+            else:
+                df_new = pd.DataFrame(
+                    columns=["timestamp", "open", "high", "low", "close", "volume"]
+                )
+
+            # Merge with existing Parquet unless --replace.
+            if config.save and not config.replace:
+                existing_path = downloader.get_candle_file_path(symbol, exchange, config.interval)
+                if existing_path.exists():
+                    df_existing = pd.read_parquet(existing_path)
+                    log.info(
+                        "Merging %d new rows with %d existing rows for %s.",
+                        len(df_new),
+                        len(df_existing),
+                        symbol,
+                    )
+                    df_new = pd.concat([df_existing, df_new], ignore_index=True)
+
+            # Deduplicate by timestamp and sort ascending.
+            df_new = (
+                df_new.drop_duplicates(subset=["timestamp"])
+                .sort_values("timestamp")
+                .reset_index(drop=True)
+            )
+
+            # Validate the final merged result.
+            report = validate_ohlcv_dataframe(df_new, symbol, exchange, config.interval)
+            validation_reports[symbol] = report
+
+            if report.is_valid:
+                log.info("Validation OK for %s: %d rows.", symbol, report.row_count)
+            else:
+                error_codes = [i.code for i in report.issues if i.severity == "error"]
+                log.warning("Validation errors for %s: %s", symbol, error_codes)
+
+            # Save the merged DataFrame.
+            if config.save:
+                path = downloader.get_candle_file_path(symbol, exchange, config.interval)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                df_new.to_parquet(path, index=False)
+                file_paths[symbol] = path
+                log.info("Saved %d candles → %s", len(df_new), path)
+
+            downloaded.append(symbol)
+
         except Exception as exc:
             log.error("Failed to download %s: %s", symbol, exc)
             failed.append(symbol)
@@ -259,4 +384,5 @@ def run_download(
         validation_reports=validation_reports,
         file_paths=file_paths,
         dry_run=False,
+        chunks=chunks,
     )

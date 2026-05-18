@@ -276,7 +276,7 @@ def validate_ohlcv_dataframe(
                     code="POSSIBLE_MISSING_CANDLES",
                     message=(
                         f"Large gap detected: {gap_start} → {gap_end} "
-                        f"({diffs.iloc[idx]}). Expected ~{expected}."
+                        f"({diffs[idx]}). Expected ~{expected}."
                     ),
                     symbol=symbol,
                     timestamp=gap_end.to_pydatetime(),

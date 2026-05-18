@@ -13,65 +13,151 @@ A personal Zerodha-connected Indian equity intraday trading engine.
 
 > **Live trading is disabled by default.**
 >
-> `LIVE_TRADING_ENABLED` defaults to `false`. The broker interface raises
-> `LiveTradingDisabledError` on any order placement attempt. Live execution
-> requires a complete order manager, risk engine, and reconciliation system
-> (Milestone 9) before this flag can safely be set to `true`.
+> All three flags — `LIVE_TRADING_ENABLED`, `LIVE_ORDER_EXECUTION_ENABLED`, and
+> `LIVE_ORDER_PILOT_ENABLED` — default to `false`. Even with all three enabled,
+> every order requires an explicit kill-switch check, risk-engine approval, a
+> 10-point safety guard, and the operator typing `PLACE LIVE ORDER` at the terminal.
+> Run `python3 scripts/live_pilot_preflight.py` before any live session.
 
 ---
 
 ## Current milestone
 
-**Milestone 16 — Live Order Execution Pilot** (complete)
+**Milestone 17 — Production Hardening and Operating Checklist** (complete)
 
-Added a complete paper trading engine that simulates strategy execution against
-pre-loaded bar data. No Zerodha WebSocket. No real order placement. No credentials.
+Added operational hardening for the live order pilot: preflight checks, safety
+regression tests, operating runbooks, and an updated environment template.
+No new trading behaviour. No changes to live flag defaults.
 
 **What was added:**
 
-| Component | Location | Description |
-|---|---|---|
-| `PaperMarketFeed` | `paper/market_feed.py` | Yields bars from `list[Bar]` or DataFrame, globally time-sorted |
-| `PaperPortfolio` | `paper/portfolio.py` | Subclass of `BacktestPortfolio`; tracks cash, positions, P&L |
-| `PaperExecutionBroker` | `paper/broker.py` | Fills MARKET / LIMIT orders against synthetic bars |
-| `PaperTradingReport` | `paper/report.py` | JSON-serialisable report (no metrics — forward-only mode) |
-| `PaperTradingEngine` | `paper/engine.py` | Main loop: feed → strategy → risk → broker → report |
-| `events.py` | `paper/events.py` | Frozen event dataclasses for paper mode |
+| File | Description |
+|---|---|
+| `docs/OPERATING_CHECKLIST.md` | 12-section pre-market checklist for every live session |
+| `docs/SAFETY_REVIEW.md` | Exhaustive catalogue of all 13 live safety gates |
+| `docs/INCIDENT_RESPONSE.md` | Step-by-step responses for 8 incident scenarios |
+| `docs/LIVE_PILOT_RUNBOOK.md` | 9-step operator guide from dry-run to reconciliation |
+| `src/trading_engine/live_execution/preflight.py` | `LivePilotPreflightChecker` — config & env validation |
+| `scripts/live_pilot_preflight.py` | CLI preflight runner (`--json`, `--require-static-ip-confirmed`) |
+| `tests/unit/live_execution/test_preflight.py` | 44 preflight unit tests |
+| `tests/unit/live_execution/test_safety_regression.py` | SR-01–SR-10 safety regression tests |
+| `tests/unit/scripts/test_live_pilot_preflight.py` | 12 CLI tests incl. JSON output and secret-free output |
+| `.env.example` | Rewritten with security rules, JSON array format notes, IP warning |
+| `Makefile` | Added `test-safety`, `live-preflight`, `live-dry-run` targets |
 
-**Difference between backtesting and paper mode:**
+**What preflight checks:**
 
-| | Backtest | Paper |
-|---|---|---|
-| Data source | `HistoricalDataFeed` (DataFrame) | `PaperMarketFeed` (Bar list or DataFrame) |
-| Portfolio | `BacktestPortfolio` | `PaperPortfolio` (subclass) |
-| Execution | `SimulatedBroker` | `PaperExecutionBroker` |
-| Report | `BacktestReport` (with metrics) | `PaperTradingReport` (no metrics) |
-| Intended use | Historical evaluation | Forward simulation |
+`LivePilotPreflightChecker` runs without placing orders or calling APIs. It
+validates 13 items across 6 categories and returns a `PreflightReport`:
 
-**How paper mode stays safe:**
+| Category | Checks |
+|---|---|
+| Flags | `LIVE_TRADING_ENABLED`, `LIVE_ORDER_EXECUTION_ENABLED`, `LIVE_ORDER_PILOT_ENABLED` |
+| Pilot constraints | max quantity, allowed symbols non-empty, product=MIS, exchange=NSE, order types |
+| Credentials | `ZERODHA_API_KEY`, `ZERODHA_API_SECRET`, `ZERODHA_ACCESS_TOKEN` present (values hidden) |
+| Filesystem | audit log directory writable, dashboard path writable (if configured) |
+| Kill switch | inactive / not provided (WARN) / active (FAIL) |
+| Static IP | always WARN advisory; upgraded to REQUIRED with `--require-static-ip-confirmed` |
 
-- No Zerodha SDK is imported anywhere in `src/trading_engine/paper/`.
-- No real order placement — `PaperExecutionBroker` fills against synthetic bars only.
-- No credentials required — runs fully offline.
-- No Zerodha WebSocket — bar delivery is synchronous from pre-loaded data.
-- Live order placement still blocked by `LiveTradingDisabledError` in `broker/paper.py`.
-
-**Naming clarity:**
-
-- `broker/paper.py` — `PaperBroker`: the Broker-interface stub (connection lifecycle only, no fills).
-- `paper/broker.py` — `PaperExecutionBroker`: the execution simulator (fills orders).
+**How to run preflight:**
 
 ```bash
-# Run all tests (606 total, all pass)
+# Human-readable table (exit 0 = all REQUIRED checks pass)
+python3 scripts/live_pilot_preflight.py
+
+# Machine-readable JSON
+python3 scripts/live_pilot_preflight.py --json
+
+# Treat static IP as a hard requirement
+python3 scripts/live_pilot_preflight.py --require-static-ip-confirmed
+
+# Specify paths
+python3 scripts/live_pilot_preflight.py --audit-log-path data/audit --dashboard-path data/dashboard.json
+```
+
+**How to run safety tests:**
+
+```bash
+make test-safety
+# equivalent: pytest tests/unit/live_execution/ tests/unit/scripts/ -v
+```
+
+**Safety guarantees (unchanged from M16):**
+
+- No unattended live trading. Every live order requires the operator to type
+  `PLACE LIVE ORDER` interactively at the terminal (`scripts/live_order_pilot.py`).
+- All live flags default to `false` in `Settings`:
+  - `LIVE_TRADING_ENABLED = false`
+  - `LIVE_ORDER_EXECUTION_ENABLED = false`
+  - `LIVE_ORDER_PILOT_ENABLED = false`
+- A kill switch, risk engine, approval gate, and 10-point safety guard all sit
+  between strategy signals and any real order placement.
+
+```bash
+# Run all tests (1281 total, all pass)
 python3 -m pytest -v
 
 # Style checks
 python3 -m ruff check src tests scripts
 python3 -m ruff format --check src tests scripts
 
-# Optional: run ORB in paper mode using local Parquet data
-# (exits cleanly if no local data exists)
-python3 scripts/run_paper_orb.py
+# Preflight (exits 0 when all REQUIRED checks pass; live flags are off by default)
+python3 scripts/live_pilot_preflight.py --json
+```
+
+---
+
+**Milestone 16 — Live Order Execution Pilot** (complete)
+
+Added a fully gated live order execution pilot for a Zerodha-connected NSE
+intraday session. All live flags default to `false`. No order is placed without
+all three flags enabled, an explicit approval, a 10-point safety check, and
+the operator typing `PLACE LIVE ORDER` at the terminal.
+
+**What was added:**
+
+| Component | Location | Description |
+|---|---|---|
+| `LivePilotConfig` | `live_execution/pilot_config.py` | Constraint dataclass; `from_settings()` factory |
+| `assert_pilot_order_allowed()` | `live_execution/safety.py` | 10-point pre-placement guard |
+| `ZerodhaBroker.place_order()` | `broker/zerodha/client.py` | Real Kite order placement, gated by safety guard |
+| `LiveOrderPilotExecutor` | `live_execution/pilot_executor.py` | Orchestrates risk → approval → safety → broker |
+| `OrderVerificationService` | `live_execution/order_verification.py` | Post-placement order polling |
+| `live_order_pilot.py` | `scripts/` | CLI: requires `--i-understand-this-places-real-orders` + phrase |
+
+**The 10-point safety check** (`assert_pilot_order_allowed`):
+
+1. `LIVE_ORDER_EXECUTION_ENABLED` flag
+2. `LIVE_ORDER_PILOT_ENABLED` flag
+3. Kill switch inactive
+4. Risk engine approved
+5. Approval status == `APPROVED`
+6. Symbol in `LIVE_ALLOWED_SYMBOLS` (non-empty whitelist, case-insensitive)
+7. Exchange == `LIVE_ALLOWED_EXCHANGE`
+8. Product == `LIVE_ALLOWED_PRODUCT`
+9. Order type in `LIVE_ALLOWED_ORDER_TYPES`
+10. Quantity ≤ `LIVE_MAX_ORDER_QUANTITY`
+
+**How live flags stay safe by default:**
+
+| Setting | Default | Env var |
+|---|---|---|
+| `live_trading_enabled` | `false` | `LIVE_TRADING_ENABLED` |
+| `live_order_execution_enabled` | `false` | `LIVE_ORDER_EXECUTION_ENABLED` |
+| `live_order_pilot_enabled` | `false` | `LIVE_ORDER_PILOT_ENABLED` |
+| `live_max_order_quantity` | `1` | `LIVE_MAX_ORDER_QUANTITY` |
+| `live_allowed_symbols` | `[]` | `LIVE_ALLOWED_SYMBOLS` (JSON array) |
+| `live_allowed_exchange` | `"NSE"` | `LIVE_ALLOWED_EXCHANGE` |
+| `live_allowed_product` | `"MIS"` | `LIVE_ALLOWED_PRODUCT` |
+| `live_allowed_order_types` | `["MARKET","LIMIT"]` | `LIVE_ALLOWED_ORDER_TYPES` (JSON array) |
+
+```bash
+# Run all tests (1196 total, all pass)
+python3 -m pytest -v
+
+# Style checks
+python3 -m ruff check src tests scripts
+python3 -m ruff format --check src tests scripts
 ```
 
 ---

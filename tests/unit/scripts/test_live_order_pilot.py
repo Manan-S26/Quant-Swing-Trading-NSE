@@ -20,10 +20,14 @@ class TestArgParsing:
     def test_required_args_parsed(self):
         args = _script._parse_args(
             [
-                "--symbol", "RELIANCE",
-                "--side", "BUY",
-                "--quantity", "1",
-                "--order-type", "MARKET",
+                "--symbol",
+                "RELIANCE",
+                "--side",
+                "BUY",
+                "--quantity",
+                "1",
+                "--order-type",
+                "MARKET",
                 "--i-understand-this-places-real-orders",
             ]
         )
@@ -41,10 +45,14 @@ class TestArgParsing:
     def test_defaults(self):
         args = _script._parse_args(
             [
-                "--symbol", "RELIANCE",
-                "--side", "BUY",
-                "--quantity", "1",
-                "--order-type", "MARKET",
+                "--symbol",
+                "RELIANCE",
+                "--side",
+                "BUY",
+                "--quantity",
+                "1",
+                "--order-type",
+                "MARKET",
                 "--i-understand-this-places-real-orders",
             ]
         )
@@ -55,11 +63,16 @@ class TestArgParsing:
     def test_optional_price(self):
         args = _script._parse_args(
             [
-                "--symbol", "RELIANCE",
-                "--side", "BUY",
-                "--quantity", "1",
-                "--order-type", "LIMIT",
-                "--price", "2345",
+                "--symbol",
+                "RELIANCE",
+                "--side",
+                "BUY",
+                "--quantity",
+                "1",
+                "--order-type",
+                "LIMIT",
+                "--price",
+                "2345",
                 "--i-understand-this-places-real-orders",
             ]
         )
@@ -92,11 +105,16 @@ class TestBuildIntent:
     def test_zero_price_exits(self):
         args = _script._parse_args(
             [
-                "--symbol", "RELIANCE",
-                "--side", "BUY",
-                "--quantity", "1",
-                "--order-type", "LIMIT",
-                "--price", "0",
+                "--symbol",
+                "RELIANCE",
+                "--side",
+                "BUY",
+                "--quantity",
+                "1",
+                "--order-type",
+                "LIMIT",
+                "--price",
+                "0",
             ]
         )
         with pytest.raises(SystemExit):
@@ -116,7 +134,11 @@ class TestMainSafetyChecks:
         )
         captured = capsys.readouterr()
         obj = json.loads(captured.err)
-        assert "i-understand-this-places-real-orders" in obj["error"].lower() or "safety" in obj["error"].lower() or "Missing" in obj["error"]
+        assert (
+            "i-understand-this-places-real-orders" in obj["error"].lower()
+            or "safety" in obj["error"].lower()
+            or "Missing" in obj["error"]
+        )
 
     def test_live_execution_disabled_returns_3(self, capsys, monkeypatch):
         # Ensure env vars are off
@@ -125,10 +147,14 @@ class TestMainSafetyChecks:
         monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
         rc = _script.main(
             [
-                "--symbol", "RELIANCE",
-                "--side", "BUY",
-                "--quantity", "1",
-                "--order-type", "MARKET",
+                "--symbol",
+                "RELIANCE",
+                "--side",
+                "BUY",
+                "--quantity",
+                "1",
+                "--order-type",
+                "MARKET",
                 "--i-understand-this-places-real-orders",
             ]
         )
@@ -139,10 +165,14 @@ class TestMainSafetyChecks:
         monkeypatch.setenv("LIVE_ORDER_PILOT_ENABLED", "false")
         rc = _script.main(
             [
-                "--symbol", "RELIANCE",
-                "--side", "BUY",
-                "--quantity", "1",
-                "--order-type", "MARKET",
+                "--symbol",
+                "RELIANCE",
+                "--side",
+                "BUY",
+                "--quantity",
+                "1",
+                "--order-type",
+                "MARKET",
                 "--i-understand-this-places-real-orders",
             ]
         )

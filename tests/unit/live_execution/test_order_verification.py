@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from trading_engine.live_execution.order_verification import OrderVerificationService, VerificationResult
+from trading_engine.live_execution.order_verification import (
+    OrderVerificationService,
+    VerificationResult,
+)
 
 
 class _FakeBroker:

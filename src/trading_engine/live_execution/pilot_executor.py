@@ -185,9 +185,7 @@ class LiveOrderPilotExecutor:
                 error=str(exc),
             )
 
-        self._log.info(
-            "PilotExecutor: order placed — broker_order_id=%r", broker_order_id
-        )
+        self._log.info("PilotExecutor: order placed — broker_order_id=%r", broker_order_id)
         return PilotOrderResult(
             success=True,
             broker_order_id=broker_order_id,

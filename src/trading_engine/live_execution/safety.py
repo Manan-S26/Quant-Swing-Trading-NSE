@@ -115,8 +115,7 @@ class LiveExecutionSafetyGuard:
         # 2. Pilot-specific flag
         if not config.live_order_pilot_enabled:
             raise SafetyError(
-                "LIVE_ORDER_PILOT_ENABLED is False. "
-                "Set it to true to enable the live order pilot."
+                "LIVE_ORDER_PILOT_ENABLED is False. Set it to true to enable the live order pilot."
             )
 
         # 3. Kill switch

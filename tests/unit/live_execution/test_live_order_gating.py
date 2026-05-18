@@ -12,8 +12,7 @@ from typing import Any
 import pytest
 
 from trading_engine.common.exceptions import SafetyError
-from trading_engine.live_execution.approvals import LiveOrderApprovalGate
-from trading_engine.live_execution.models import ApprovalMode, ApprovalStatus
+from trading_engine.live_execution.models import ApprovalStatus
 from trading_engine.live_execution.pilot_config import LivePilotConfig
 from trading_engine.live_execution.safety import LiveExecutionSafetyGuard
 from trading_engine.strategy.signals import OrderIntent

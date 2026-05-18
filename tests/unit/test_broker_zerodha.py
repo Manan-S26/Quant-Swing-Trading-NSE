@@ -256,12 +256,13 @@ class TestStreamTicks:
 
 class TestOrderPlacementBlocked:
     def test_place_order_blocked_when_pilot_disabled(self, connected_broker: ZerodhaBroker) -> None:
+        from datetime import UTC, datetime
+
         from trading_engine.common.exceptions import SafetyError
         from trading_engine.live_execution.models import ApprovalDecision, ApprovalStatus
         from trading_engine.live_execution.pilot_config import LivePilotConfig
         from trading_engine.live_execution.safety import LiveExecutionSafetyGuard
         from trading_engine.strategy.signals import OrderIntent
-        from datetime import UTC, datetime
 
         config = LivePilotConfig()  # all flags False by default
         approval = ApprovalDecision(
@@ -297,12 +298,13 @@ class TestOrderPlacementBlocked:
             connected_broker.cancel_order(order_id="ord_abc")
 
     def test_place_order_requires_connection(self, broker: ZerodhaBroker) -> None:
+        from datetime import UTC, datetime
+
         from trading_engine.common.exceptions import BrokerConnectionError
         from trading_engine.live_execution.models import ApprovalDecision, ApprovalStatus
         from trading_engine.live_execution.pilot_config import LivePilotConfig
         from trading_engine.live_execution.safety import LiveExecutionSafetyGuard
         from trading_engine.strategy.signals import OrderIntent
-        from datetime import UTC, datetime
 
         config = LivePilotConfig(
             live_order_execution_enabled=True,

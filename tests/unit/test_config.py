@@ -154,7 +154,9 @@ class TestPilotEnvOverride:
         settings = Settings(_env_file=".env.test_nonexistent")  # type: ignore[call-arg]
         assert settings.live_allowed_symbols == ["RELIANCE", "INFY", "TCS"]
 
-    def test_allowed_order_types_parsed_from_json_array(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_allowed_order_types_parsed_from_json_array(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("LIVE_ALLOWED_ORDER_TYPES", '["MARKET","LIMIT"]')
         settings = Settings(_env_file=".env.test_nonexistent")  # type: ignore[call-arg]
         assert "MARKET" in settings.live_allowed_order_types

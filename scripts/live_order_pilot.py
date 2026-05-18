@@ -56,9 +56,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument("--symbol", required=True, help="Trading symbol, e.g. RELIANCE")
-    parser.add_argument(
-        "--side", required=True, choices=["BUY", "SELL"], help="Order side"
-    )
+    parser.add_argument("--side", required=True, choices=["BUY", "SELL"], help="Order side")
     parser.add_argument("--quantity", required=True, type=int, help="Number of shares (>0)")
     parser.add_argument(
         "--order-type",
@@ -109,7 +107,9 @@ def _build_intent(args: argparse.Namespace) -> OrderIntent:
 
     if args.order_type in ("LIMIT", "SL") and price is None:
         print(
-            json.dumps({"error": f"--price is required for {args.order_type} orders", "exit_code": 1}),
+            json.dumps(
+                {"error": f"--price is required for {args.order_type} orders", "exit_code": 1}
+            ),
             file=sys.stderr,
         )
         sys.exit(1)
@@ -222,7 +222,9 @@ def main(argv: list[str] | None = None) -> int:
         kite.set_access_token(settings.zerodha_access_token.get_secret_value())
     except ImportError:
         print(
-            json.dumps({"error": "kiteconnect package not installed. Run: pip install kiteconnect"}),
+            json.dumps(
+                {"error": "kiteconnect package not installed. Run: pip install kiteconnect"}
+            ),
             file=sys.stderr,
         )
         return 5

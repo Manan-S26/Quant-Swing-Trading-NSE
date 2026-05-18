@@ -49,9 +49,7 @@ class LivePilotConfig:
         Reads only the live_* attributes; unknown attributes are ignored.
         """
         return cls(
-            live_order_execution_enabled=getattr(
-                settings, "live_order_execution_enabled", False
-            ),
+            live_order_execution_enabled=getattr(settings, "live_order_execution_enabled", False),
             live_order_pilot_enabled=getattr(settings, "live_order_pilot_enabled", False),
             max_order_quantity=getattr(settings, "live_max_order_quantity", 1),
             allowed_symbols=list(getattr(settings, "live_allowed_symbols", [])),

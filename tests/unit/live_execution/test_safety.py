@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from trading_engine.common.exceptions import SafetyError
-from trading_engine.live_execution.approvals import LiveOrderApprovalGate
-from trading_engine.live_execution.models import ApprovalDecision, ApprovalMode, ApprovalStatus
+from trading_engine.live_execution.models import ApprovalDecision, ApprovalStatus
 from trading_engine.live_execution.pilot_config import LivePilotConfig
 from trading_engine.live_execution.safety import LiveExecutionSafetyGuard
 from trading_engine.risk.kill_switch import KillSwitch
 from trading_engine.strategy.signals import OrderIntent
-
-from datetime import UTC, datetime
 
 
 class _Settings:
@@ -131,7 +130,9 @@ class TestNoSettingsAttribute:
 
 class TestPilotOrderAllowed:
     def _guard(self, kill_switch: KillSwitch | None = None) -> LiveExecutionSafetyGuard:
-        return LiveExecutionSafetyGuard(_Settings(live_trading_enabled=True), kill_switch=kill_switch)
+        return LiveExecutionSafetyGuard(
+            _Settings(live_trading_enabled=True), kill_switch=kill_switch
+        )
 
     def test_passes_when_all_conditions_met(self):
         guard = self._guard()

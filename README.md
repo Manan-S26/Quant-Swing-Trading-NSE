@@ -777,6 +777,94 @@ else:
 
 ---
 
+## Milestone 14: Zerodha Live Market Data for Paper Trading
+
+Adds real-time Zerodha WebSocket tick ingestion, candle building, and a live
+paper trading runner. **No real orders are placed.** All fills are simulated.
+
+### What was added
+
+```
+src/trading_engine/live_data/
+├── __init__.py
+├── models.py          # LiveTick dataclass with validation
+├── candle_builder.py  # CandleBuilder: ticks → OHLCV Bar objects
+└── zerodha_feed.py    # ZerodhaLiveMarketFeed: KiteTicker wrapper
+
+src/trading_engine/paper/live_runner.py   # PaperLiveRunner + PaperLiveRunnerConfig
+
+scripts/run_paper_live_zerodha.py         # CLI runner with safety checks
+```
+
+### How it works
+
+1. `ZerodhaLiveMarketFeed` connects to the Zerodha KiteTicker WebSocket and
+   converts raw tick dicts into `LiveTick` objects via `_raw_tick_to_live_tick`.
+2. Each `LiveTick` is passed to `CandleBuilder`, which groups ticks by symbol
+   and interval bucket (default 60 s).  When a new bucket starts, the previous
+   candle is emitted as a `Bar`.
+3. `PaperLiveRunner.on_tick()` receives each tick, forwards completed `Bar`
+   objects to the strategy, runs risk checks, and simulates fills via
+   `PaperExecutionBroker`.
+4. Dashboard status is written after each bar via `DashboardSessionWriter`.
+
+### How this differs from live trading
+
+| Paper Live (this milestone) | Live Trading (not implemented) |
+|---|---|
+| Receives real market data | Receives real market data |
+| Simulates fills in memory | Places real orders via Zerodha |
+| No `place_order` calls | Calls `place_order` on broker |
+| `LIVE_TRADING_ENABLED=false` | `LIVE_TRADING_ENABLED=true` |
+| Safe to run at any time | Requires explicit safety approval |
+
+### Required credentials
+
+```bash
+ZERODHA_API_KEY=your_api_key
+ZERODHA_ACCESS_TOKEN=your_daily_token   # generate with zerodha_login_helper.py
+LIVE_TRADING_ENABLED=false              # must be false
+```
+
+### Safety flag
+
+The script will not start without:
+```
+--i-understand-this-uses-live-market-data
+```
+
+It also hard-refuses if `LIVE_TRADING_ENABLED=true`.
+
+### Example command
+
+```bash
+python3 scripts/run_paper_live_zerodha.py \
+  --i-understand-this-uses-live-market-data \
+  --symbols RELIANCE INFY \
+  --interval-seconds 60 \
+  --strategy orb \
+  --dashboard-path data/dashboard/session_status.json
+```
+
+Press Ctrl+C to stop. Open candles are flushed through the strategy on shutdown.
+
+### Real order placement is still not implemented
+
+`ZerodhaBroker.place_order()` still raises `LiveTradingDisabledError`.
+`modify_order` and `cancel_order` remain unimplemented. This milestone adds
+data ingestion only.
+
+### Tests
+
+| File | Coverage |
+|---|---|
+| `tests/unit/live_data/test_models.py` | LiveTick validation |
+| `tests/unit/live_data/test_candle_builder.py` | OHLCV logic, bucket alignment, flush, reset |
+| `tests/unit/live_data/test_zerodha_feed.py` | Fake ticker connect/disconnect, tick conversion, callback |
+| `tests/unit/paper/test_live_runner.py` | Runner lifecycle, fills, stop-event, script safety checks |
+
+---
+
 ## Next milestone
 
 *TBD*

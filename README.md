@@ -645,9 +645,70 @@ python3 -m ruff format --check src tests scripts  # no reformats needed
 
 ---
 
+## Milestone 12: Dashboard v1
+
+### What was added
+
+- **`src/trading_engine/dashboard/models.py`** — `DashboardSession`: JSON-serialisable envelope wrapping a `StatusPage` snapshot with metadata (`generated_at`, `source`, `version`).
+- **`src/trading_engine/dashboard/session_writer.py`** — `DashboardSessionWriter`: atomic JSON writer/reader. Writes to a temp file then renames to prevent partial reads.
+- **`scripts/dashboard.py`** — Streamlit dashboard that reads the session JSON and renders orders, fills, reconciliation status, and a raw JSON debug view.
+- **`scripts/write_demo_dashboard_status.py`** — Generates demo session JSON without credentials or live data.
+- **`Makefile`** — Updated `run-dashboard` and added `write-demo-dashboard` targets.
+
+### How the dashboard reads session JSON
+
+The engine (backtest, paper, or future live engine) calls `DashboardSessionWriter.write_status(status_page.to_dict())` to update the session file. The Streamlit process reads that file on each render cycle. There is no shared memory or IPC — just a JSON file.
+
+The default session file path is `data/dashboard/session_status.json`. Override with:
+
+```bash
+DASHBOARD_SESSION_PATH=data/my/path.json streamlit run scripts/dashboard.py
+```
+
+### How to write demo dashboard status
+
+```bash
+python3 scripts/write_demo_dashboard_status.py
+# or:
+make write-demo-dashboard
+```
+
+This generates a realistic fake session at `data/dashboard/session_status.json`.
+
+### How to run the dashboard
+
+```bash
+streamlit run scripts/dashboard.py
+# or:
+make run-dashboard
+```
+
+Then open the URL shown in the terminal (typically `http://localhost:8501`).
+
+Enable **Auto-refresh** in the sidebar to poll for updates every 30 seconds.
+
+### Confirmation
+
+- The dashboard is **read-only**. It reads a JSON file and renders it. No broker calls, no orders, no mutations.
+- `LIVE_TRADING_ENABLED` remains `false`.
+- No credentials are required to run the dashboard.
+- The generated `data/dashboard/session_status.json` file is listed in `.gitignore` (add it if not present) and must not be committed.
+
+### Commands to verify
+
+```bash
+python3 -m pytest -v                                    # 864 tests, all pass
+python3 -m ruff check src tests scripts                 # no errors
+python3 -m ruff format --check src tests scripts        # no reformats needed
+python3 scripts/write_demo_dashboard_status.py          # writes demo JSON
+streamlit run scripts/dashboard.py                      # opens dashboard
+```
+
+---
+
 ## Next milestone
 
-**Milestone 12: Dashboard v1**
+**Milestone 13: Strategy analytics and validation gates**
 
 ---
 

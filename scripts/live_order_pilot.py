@@ -76,11 +76,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         dest="confirmed_flag",
         help="Required safety acknowledgement flag.",
     )
-    parser.add_argument(
-        "--yes",
-        action="store_true",
-        help="Skip interactive confirmation (for testing only; still requires --i-understand-this-places-real-orders).",
-    )
     return parser.parse_args(argv)
 
 
@@ -158,7 +153,20 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = load_settings()
 
-    # Hard block: refuse if pilot flags are off
+    # Hard block: refuse if any required live flag is off.
+    # All three flags must be explicitly true — no silent defaults.
+    if not getattr(settings, "live_trading_enabled", False):
+        print(
+            json.dumps(
+                {
+                    "error": "LIVE_TRADING_ENABLED is not set to true.",
+                    "hint": "Set LIVE_TRADING_ENABLED=true in your .env to proceed.",
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 3
+
     if not getattr(settings, "live_order_execution_enabled", False):
         print(
             json.dumps(
@@ -185,33 +193,45 @@ def main(argv: list[str] | None = None) -> int:
 
     intent = _build_intent(args)
 
-    # Interactive confirmation (unless --yes bypasses it)
-    if not args.yes:
+    # Interactive confirmation — always required, no bypass flag exists.
+    # The operator must type the exact phrase to proceed.
+    print(
+        f"\n  WARNING: This will place a REAL order:\n"
+        f"    Symbol:     {intent.symbol}\n"
+        f"    Side:       {intent.side}\n"
+        f"    Quantity:   {intent.quantity}\n"
+        f"    Order type: {intent.order_type}\n"
+        f"    Product:    {intent.product}\n"
+        f"    Exchange:   {intent.exchange}\n"
+    )
+    try:
+        answer = input(f'  Type "{_CONFIRMATION_PHRASE}" to confirm: ').strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\nAborted.", file=sys.stderr)
+        return 4
+    if answer != _CONFIRMATION_PHRASE:
         print(
-            f"\n  WARNING: This will place a REAL order:\n"
-            f"    Symbol:     {intent.symbol}\n"
-            f"    Side:       {intent.side}\n"
-            f"    Quantity:   {intent.quantity}\n"
-            f"    Order type: {intent.order_type}\n"
-            f"    Product:    {intent.product}\n"
-            f"    Exchange:   {intent.exchange}\n"
+            json.dumps({"error": "Confirmation phrase did not match. Order not placed."}),
+            file=sys.stderr,
         )
-        try:
-            answer = input(f'  Type "{_CONFIRMATION_PHRASE}" to confirm: ').strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nAborted.", file=sys.stderr)
-            return 4
-        if answer != _CONFIRMATION_PHRASE:
-            print(
-                json.dumps({"error": "Confirmation phrase did not match. Order not placed."}),
-                file=sys.stderr,
-            )
-            return 4
+        return 4
 
-    # Build dependencies
+    # Build dependencies.
+    from trading_engine.risk.kill_switch import KillSwitch  # noqa: E402
+
+    # In-process kill switch for this single-order pilot session.
+    # It starts inactive. This kill switch lives only for the duration of
+    # this process. A persistent/shared kill switch (file-backed, DB-backed,
+    # or IPC-based) is future hardening and not implemented in this milestone.
+    kill_switch = KillSwitch()
+
     pilot_config = LivePilotConfig.from_settings(settings)
-    safety_guard = LiveExecutionSafetyGuard(settings=settings)
-    approval_gate = LiveOrderApprovalGate(mode=ApprovalMode.AUTO_PAPER)
+    safety_guard = LiveExecutionSafetyGuard(settings=settings, kill_switch=kill_switch)
+    # Record the operator's terminal confirmation in the audit log.
+    approval_gate = LiveOrderApprovalGate(
+        mode=ApprovalMode.AUTO_PAPER,
+        decided_by="operator_cli",
+    )
     audit_logger = ApprovalAuditLogger(log_path="data/audit/pilot_orders.jsonl")
 
     # Connect broker (requires valid credentials in settings)

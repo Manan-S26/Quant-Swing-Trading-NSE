@@ -82,16 +82,21 @@ make test-safety
 # equivalent: pytest tests/unit/live_execution/ tests/unit/scripts/ -v
 ```
 
-**Safety guarantees (unchanged from M16):**
+**Safety guarantees (updated — safety-patch applied post-M17):**
 
 - No unattended live trading. Every live order requires the operator to type
   `PLACE LIVE ORDER` interactively at the terminal (`scripts/live_order_pilot.py`).
+  There is no `--yes` flag or equivalent bypass in the production CLI.
 - All live flags default to `false` in `Settings`:
-  - `LIVE_TRADING_ENABLED = false`
+  - `LIVE_TRADING_ENABLED = false` — enforced in code (first check in `assert_pilot_order_allowed()`)
   - `LIVE_ORDER_EXECUTION_ENABLED = false`
   - `LIVE_ORDER_PILOT_ENABLED = false`
-- A kill switch, risk engine, approval gate, and 10-point safety guard all sit
-  between strategy signals and any real order placement.
+- `LIVE_TRADING_ENABLED=false` alone is sufficient to block all live pilot orders regardless of
+  the other two flags — this is verified by tests.
+- A kill switch (in-process, per-session), risk engine, approval gate, and 10-point safety guard
+  all sit between strategy signals and any real order placement.
+- Kill switch is wired into `scripts/live_order_pilot.py`. A persistent/shared kill switch is
+  future hardening. To stop future sessions, set `LIVE_TRADING_ENABLED=false` in `.env`.
 
 ```bash
 # Run all tests (1281 total, all pass)

@@ -1,6 +1,6 @@
 # Safety Review — Live Order Execution
 
-**Version:** Milestone 17
+**Version:** Milestone 17 + safety patch
 **Scope:** NSE cash equities, Zerodha Kite Connect, intraday MIS only
 **Status:** Pilot-ready with all gates in place. Unattended live trading is intentionally not implemented.
 
@@ -16,27 +16,35 @@ path can bypass the full chain.
 
 ## Live Execution Gates
 
-### Gate 1: Global kill switch (`GLOBAL_KILL_SWITCH`)
+### Gate 1: Global kill switch
 
-- **Location:** `src/trading_engine/risk/kill_switch.py`, `LiveExecutionSafetyGuard.assert_live_execution_allowed()`
-- **Default:** Inactive (does not block by default; set `GLOBAL_KILL_SWITCH=true` to arm it at startup)
+- **Location:** `src/trading_engine/risk/kill_switch.py`, `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`
+- **Default:** Inactive (starts inactive; must be explicitly activated).
 - **Behaviour:** Once activated, all order placement paths raise `SafetyError` immediately.
-  The kill switch can be activated programmatically or at startup via env var.
-- **Recovery:** Call `kill_switch.deactivate()` or restart with `GLOBAL_KILL_SWITCH=false`.
+  The kill switch is checked inside `assert_pilot_order_allowed()` before any broker call.
+- **Live pilot:** `scripts/live_order_pilot.py` creates an in-process `KillSwitch` instance and
+  passes it to `LiveExecutionSafetyGuard`. This in-process kill switch is scoped to the single
+  pilot session. A persistent/shared kill switch (file-backed, DB-backed, or IPC-based) is
+  future hardening and is not implemented in this milestone.
+- **Recovery:** Deactivate via `kill_switch.deactivate()`.
 
 ### Gate 2: LIVE_TRADING_ENABLED flag
 
-- **Location:** `src/trading_engine/common/config.py` (Settings), `LiveExecutionSafetyGuard.assert_live_execution_allowed()`
+- **Location:** `src/trading_engine/common/config.py` (Settings),
+  `LiveExecutionSafetyGuard.assert_pilot_order_allowed()` (check 0, enforced in code)
 - **Default:** `False`
-- **Behaviour:** `LiveExecutionSafetyGuard.assert_live_execution_allowed()` raises `SafetyError`
-  if this is False. The download and paper scripts also refuse to run if this is True (inverted check).
+- **Behaviour:** `assert_pilot_order_allowed()` raises `SafetyError` if this flag is `False`.
+  This is the first check in the pilot order gate — it runs before the execution flags, before
+  the kill switch, and before any broker call. Setting `LIVE_TRADING_ENABLED=false` is
+  sufficient to block all live pilot orders regardless of other flags.
+  The download and paper scripts also refuse to run if this is `True` (inverted check).
 
 ### Gate 3: LIVE_ORDER_EXECUTION_ENABLED flag
 
 - **Location:** `src/trading_engine/common/config.py`, `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`
 - **Default:** `False`
 - **Behaviour:** `assert_pilot_order_allowed()` raises `SafetyError` if this is False.
-  This flag must be explicitly set to `true` in addition to `LIVE_TRADING_ENABLED`.
+  This flag must be explicitly set to `true` alongside `LIVE_TRADING_ENABLED`.
 
 ### Gate 4: LIVE_ORDER_PILOT_ENABLED flag
 
@@ -45,17 +53,25 @@ path can bypass the full chain.
 - **Behaviour:** `assert_pilot_order_allowed()` raises `SafetyError` if this is False.
   Third required flag — all three must be simultaneously True.
 
-### Gate 5: Manual approval gate
+### Gate 5: Terminal confirmation phrase
 
-- **Location:** `src/trading_engine/live_execution/approvals.py`
+- **Location:** `scripts/live_order_pilot.py`
+- **Phrase:** `PLACE LIVE ORDER` (exact, case-sensitive)
+- **Behaviour:** The operator must type the exact phrase at the terminal. There is no `--yes`
+  flag or other bypass. EOFError or wrong phrase returns exit code 4 and the order is not placed.
+  Audit log records `decided_by="operator_cli"` and `reason="Terminal confirmation phrase matched."`
+  to distinguish live-pilot approvals from paper-trading approvals.
+
+### Gate 6: Approval status
+
+- **Location:** `src/trading_engine/live_execution/approvals.py`, `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`
 - **Modes:**
-  - `AUTO_PAPER`: Automatically approved (paper/dry-run only).
+  - `AUTO_PAPER`: Automatically approved (paper/dry-run only, or CLI pilot after terminal confirmation).
   - `MANUAL_APPROVE`: Creates a pending request and raises `ManualApprovalRequired`. No order is placed until `approve()` is called.
   - `AUTO_LIVE`: Raises `SafetyError` — not implemented. Cannot be used to bypass the manual review path.
-- **CLI pilot:** Uses `AUTO_PAPER` with the assumption that the human operator provides approval by typing the confirmation phrase.
 - **Requirement:** `approval_decision.status` must be `APPROVED` before `assert_pilot_order_allowed()` passes.
 
-### Gate 6: Risk engine approval
+### Gate 7: Risk engine approval
 
 - **Location:** `src/trading_engine/risk/engine.py`, `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`
 - **Behaviour:** If a `risk_decision` is provided and `risk_decision.approved` is False,
@@ -64,47 +80,41 @@ path can bypass the full chain.
 - **Checks:** Kill switch, symbol whitelist, product type, order type, order value,
   open position count, daily loss, trades per day, orders per second.
 
-### Gate 7: Symbol whitelist
+### Gate 8: Symbol whitelist
 
 - **Location:** `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`, `LivePilotConfig.allowed_symbols`
 - **Default:** Empty list (all orders blocked when empty).
 - **Behaviour:** Raises `SafetyError` if `LIVE_ALLOWED_SYMBOLS` is empty or the order's symbol
   is not in the whitelist. Case-insensitive comparison.
 
-### Gate 8: Exchange constraint
+### Gate 9: Exchange constraint
 
 - **Location:** `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`, `LivePilotConfig.allowed_exchange`
 - **Default:** `"NSE"`
 - **Behaviour:** Raises `SafetyError` if `order_intent.exchange` does not match `LIVE_ALLOWED_EXCHANGE`.
 
-### Gate 9: Product constraint
+### Gate 10: Product constraint
 
 - **Location:** `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`, `LivePilotConfig.allowed_product`
 - **Default:** `"MIS"` (intraday only — auto-closed by broker at end of day)
 - **Behaviour:** Raises `SafetyError` if product does not match `LIVE_ALLOWED_PRODUCT`.
 
-### Gate 10: Order type constraint
+### Gate 11: Order type constraint
 
 - **Location:** `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`, `LivePilotConfig.allowed_order_types`
 - **Default:** `["MARKET", "LIMIT"]`
 - **Behaviour:** Raises `SafetyError` if order type is not in the allowed list.
 
-### Gate 11: Quantity cap
+### Gate 12: Quantity cap
 
 - **Location:** `LiveExecutionSafetyGuard.assert_pilot_order_allowed()`, `LivePilotConfig.max_order_quantity`
 - **Default:** `1` (one share maximum)
 - **Behaviour:** Raises `SafetyError` if `order_intent.quantity > max_order_quantity`.
 
-### Gate 12: Broker connection guard
+### Gate 13: Broker connection guard
 
 - **Location:** `ZerodhaBroker._require_connected()`, called at the start of `place_order()`
 - **Behaviour:** Raises `BrokerConnectionError` if `broker.connect()` has not been called.
-
-### Gate 13: CLI confirmation phrase
-
-- **Location:** `scripts/live_order_pilot.py`
-- **Behaviour:** Requires `--i-understand-this-places-real-orders` flag AND interactive
-  typing of `"PLACE LIVE ORDER"` exactly. Neither flag alone nor copy-paste from an automated script is sufficient.
 
 ---
 
@@ -144,9 +154,15 @@ path can bypass the full chain.
 ## Known Limitations
 
 1. **No unattended automation:** There is no code path that executes a live order without
-   a human explicitly running `live_order_pilot.py` and typing the confirmation phrase.
+   a human explicitly running `live_order_pilot.py` and typing the confirmation phrase `PLACE LIVE ORDER`.
+   There is no `--yes` flag or equivalent bypass.
 
-2. **Single-session, in-memory state:** The `LiveOrderApprovalGate` and `OrderLedger` store
+2. **In-process kill switch only:** `live_order_pilot.py` creates an in-process `KillSwitch` that
+   lives for the duration of the single pilot session. There is no persistent or shared kill switch
+   (file-backed, DB-backed, IPC). If you need to block future sessions, set `LIVE_TRADING_ENABLED=false`
+   in `.env` — this is enforced in code before any broker call.
+
+3. **Single-session, in-memory state:** The `LiveOrderApprovalGate` and `OrderLedger` store
    state in memory only. If the process restarts mid-session, state is lost. Reconcile against
    broker after any restart.
 

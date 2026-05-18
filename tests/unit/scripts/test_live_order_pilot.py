@@ -141,10 +141,29 @@ class TestMainSafetyChecks:
         )
 
     def test_live_execution_disabled_returns_3(self, capsys, monkeypatch):
-        # Ensure env vars are off
+        # LIVE_TRADING_ENABLED=true so we reach the execution flag check
+        monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
         monkeypatch.setenv("LIVE_ORDER_EXECUTION_ENABLED", "false")
         monkeypatch.setenv("LIVE_ORDER_PILOT_ENABLED", "false")
+        rc = _script.main(
+            [
+                "--symbol",
+                "RELIANCE",
+                "--side",
+                "BUY",
+                "--quantity",
+                "1",
+                "--order-type",
+                "MARKET",
+                "--i-understand-this-places-real-orders",
+            ]
+        )
+        assert rc == 3
+
+    def test_live_trading_disabled_returns_3(self, capsys, monkeypatch):
         monkeypatch.setenv("LIVE_TRADING_ENABLED", "false")
+        monkeypatch.setenv("LIVE_ORDER_EXECUTION_ENABLED", "true")
+        monkeypatch.setenv("LIVE_ORDER_PILOT_ENABLED", "true")
         rc = _script.main(
             [
                 "--symbol",
@@ -161,6 +180,7 @@ class TestMainSafetyChecks:
         assert rc == 3
 
     def test_pilot_disabled_returns_3(self, capsys, monkeypatch):
+        monkeypatch.setenv("LIVE_TRADING_ENABLED", "true")
         monkeypatch.setenv("LIVE_ORDER_EXECUTION_ENABLED", "true")
         monkeypatch.setenv("LIVE_ORDER_PILOT_ENABLED", "false")
         rc = _script.main(
@@ -177,3 +197,22 @@ class TestMainSafetyChecks:
             ]
         )
         assert rc == 3
+
+    def test_no_yes_flag_exists(self):
+        """--yes bypass must not exist in the production CLI."""
+
+        with pytest.raises(SystemExit):
+            _script._parse_args(
+                [
+                    "--symbol",
+                    "RELIANCE",
+                    "--side",
+                    "BUY",
+                    "--quantity",
+                    "1",
+                    "--order-type",
+                    "MARKET",
+                    "--i-understand-this-places-real-orders",
+                    "--yes",
+                ]
+            )

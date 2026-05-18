@@ -30,9 +30,11 @@ env/
 /data/
 logs/
 reports/
+paper_reports/
 *.parquet
 *.db
 *.sqlite
+*.jsonl
 
 # OS and IDE
 .DS_Store

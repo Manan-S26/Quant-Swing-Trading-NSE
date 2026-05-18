@@ -192,3 +192,23 @@ class TestBrokerPlaceOrderGating:
             safety_guard=self._guard(),
         )
         assert kite.calls[0]["transaction_type"] == "SELL"
+
+    def test_place_order_blocked_when_live_trading_disabled(self):
+        """kite.place_order must not be called when LIVE_TRADING_ENABLED=False."""
+        from trading_engine.common.exceptions import SafetyError
+
+        class _DisabledSettings:
+            live_trading_enabled = False
+
+        kite = _FakeKite()
+        broker = self._broker(kite)
+        guard = LiveExecutionSafetyGuard(_DisabledSettings())
+        with pytest.raises(SafetyError, match="LIVE_TRADING_ENABLED"):
+            broker.place_order(
+                order_intent=_make_intent(),
+                pilot_config=_make_enabled_config(),
+                approval_decision=self._approval(),
+                risk_decision=None,
+                safety_guard=guard,
+            )
+        assert len(kite.calls) == 0

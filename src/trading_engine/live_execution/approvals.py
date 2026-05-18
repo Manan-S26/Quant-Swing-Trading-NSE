@@ -85,6 +85,7 @@ class LiveOrderApprovalGate:
         self,
         mode: ApprovalMode,
         default_timeout_seconds: int = 60,
+        decided_by: str | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         if default_timeout_seconds <= 0:
@@ -93,6 +94,10 @@ class LiveOrderApprovalGate:
             )
         self._mode = mode
         self._timeout = default_timeout_seconds
+        # Overrides the default decided_by recorded on AUTO_PAPER approvals.
+        # Use "operator_cli" for the live pilot script to distinguish real-order
+        # approvals from paper-trading approvals in the audit log.
+        self._default_decided_by = decided_by
         self._log = logger or logging.getLogger(__name__)
         # In-memory stores.
         self._requests: dict[str, ApprovalRequest] = {}
@@ -233,18 +238,29 @@ class LiveOrderApprovalGate:
 
         if self._mode == ApprovalMode.AUTO_PAPER:
             req = self.create_request(order_intent, estimated_price, reason)
+            decided_by = self._default_decided_by or "auto_paper"
+            approval_reason = (
+                reason
+                if reason is not None
+                else (
+                    "Terminal confirmation phrase matched."
+                    if self._default_decided_by
+                    else "Automatically approved for paper trading."
+                )
+            )
             decision = ApprovalDecision(
                 approval_id=req.approval_id,
                 status=ApprovalStatus.APPROVED,
                 decided_at=_now_utc(),
-                decided_by="auto_paper",
-                reason="Automatically approved for paper trading.",
+                decided_by=decided_by,
+                reason=approval_reason,
             )
             self._decisions[req.approval_id] = decision
             self._log.debug(
-                "ApprovalGate: AUTO_PAPER approved %s %s",
+                "ApprovalGate: AUTO_PAPER approved %s %s (decided_by=%r)",
                 order_intent.side,
                 order_intent.symbol,
+                decided_by,
             )
             return decision
 

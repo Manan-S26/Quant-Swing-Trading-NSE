@@ -1,6 +1,6 @@
 # Live Order Pilot Runbook
 
-**Version:** Milestone 17
+**Version:** Milestone 17 + safety patch
 **Scope:** NSE cash equities, Zerodha Kite Connect, intraday MIS, single-share pilot
 **Purpose:** Step-by-step guide for placing one real pilot order safely.
 
@@ -68,7 +68,9 @@ ZERODHA_API_KEY=your_api_key_here
 ZERODHA_API_SECRET=your_api_secret_here
 ZERODHA_ACCESS_TOKEN=          # Fill in after Step 3
 
-# Live trading flags — ALL must be true for pilot
+# Live trading flags — ALL THREE must be true for pilot.
+# LIVE_TRADING_ENABLED is enforced in code: setting it to false
+# blocks all live pilot orders regardless of the other two flags.
 LIVE_TRADING_ENABLED=true
 LIVE_ORDER_EXECUTION_ENABLED=true
 LIVE_ORDER_PILOT_ENABLED=true
@@ -87,8 +89,9 @@ MAX_OPEN_POSITIONS=1
 MAX_TRADES_PER_DAY=3
 MAX_ORDERS_PER_SECOND=1
 
-# Kill switch — must be false
-GLOBAL_KILL_SWITCH=false
+# Kill switch: the pilot script creates an in-process KillSwitch automatically.
+# There is no env-var-controlled persistent kill switch in this milestone.
+# To block all live orders at any time, set LIVE_TRADING_ENABLED=false.
 ```
 
 **Security:**
@@ -180,7 +183,8 @@ Type exactly (case-sensitive, no extra spaces):
 PLACE LIVE ORDER
 ```
 
-Any other input will abort without placing the order.
+Any other input, including wrong capitalisation or extra spaces, will abort without
+placing the order. **There is no `--yes` flag or bypass.** This is enforced in code.
 
 ---
 

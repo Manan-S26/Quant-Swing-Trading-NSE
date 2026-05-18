@@ -581,3 +581,208 @@ def import_json_dumps(obj: Any) -> str:
     import json
 
     return json.dumps(obj)
+
+
+# ---------------------------------------------------------------------------
+# SR-11: LIVE_TRADING_ENABLED=False blocks all live pilot orders
+# ---------------------------------------------------------------------------
+
+
+class TestSR11LiveTradingEnabledRequired:
+    """LIVE_TRADING_ENABLED=False must block assert_pilot_order_allowed() before
+    any other gate is checked."""
+
+    def _guard_with_live_trading(self, enabled: bool) -> LiveExecutionSafetyGuard:
+        class _S:
+            live_trading_enabled = enabled
+
+        return LiveExecutionSafetyGuard(_S())
+
+    def test_live_trading_false_raises_safety_error(self):
+        guard = self._guard_with_live_trading(False)
+        with pytest.raises(SafetyError, match="LIVE_TRADING_ENABLED"):
+            guard.assert_pilot_order_allowed(
+                order_intent=_intent(),
+                config=_enabled_config(),
+                approval_decision=_approved_decision(),
+                risk_decision=None,
+            )
+
+    def test_live_trading_false_no_kite_call(self):
+        """kite.place_order must not be called when LIVE_TRADING_ENABLED=False."""
+        kite = _FakeKite()
+        from trading_engine.broker.zerodha.client import ZerodhaBroker
+
+        broker = ZerodhaBroker(kite_client=kite)
+        broker.connect()
+
+        guard = self._guard_with_live_trading(False)
+        with pytest.raises(SafetyError):
+            broker.place_order(
+                order_intent=_intent(),
+                pilot_config=_enabled_config(),
+                approval_decision=_approved_decision(),
+                risk_decision=None,
+                safety_guard=guard,
+            )
+        assert len(kite.calls) == 0
+
+    def test_live_trading_false_blocks_via_executor(self):
+        kite = _FakeKite()
+        executor = LiveOrderPilotExecutor(
+            broker=_connected_broker(kite),
+            pilot_config=_enabled_config(),
+            approval_gate=LiveOrderApprovalGate(mode=ApprovalMode.AUTO_PAPER),
+            safety_guard=self._guard_with_live_trading(False),
+        )
+        result = executor.execute(_intent())
+        assert result.success is False
+        assert len(kite.calls) == 0
+
+    def test_live_trading_true_allows_order(self):
+        """When all gates pass including LIVE_TRADING_ENABLED=True, kite is called once."""
+        kite = _FakeKite()
+        executor = LiveOrderPilotExecutor(
+            broker=_connected_broker(kite),
+            pilot_config=_enabled_config(),
+            approval_gate=LiveOrderApprovalGate(mode=ApprovalMode.AUTO_PAPER),
+            safety_guard=self._guard_with_live_trading(True),
+        )
+        result = executor.execute(_intent())
+        assert result.success is True
+        assert len(kite.calls) == 1
+
+    def test_live_trading_false_error_message_is_clear(self):
+        guard = self._guard_with_live_trading(False)
+        with pytest.raises(SafetyError) as exc_info:
+            guard.assert_pilot_order_allowed(
+                order_intent=_intent(),
+                config=_enabled_config(),
+                approval_decision=_approved_decision(),
+                risk_decision=None,
+            )
+        assert "LIVE_TRADING_ENABLED" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# SR-12: Kill switch active blocks pilot order before broker.place_order()
+# ---------------------------------------------------------------------------
+
+
+class TestSR12KillSwitchBlocksOrders:
+    """Active kill switch must stop the order before kite.place_order() is called."""
+
+    from trading_engine.risk.kill_switch import KillSwitch
+
+    def _guard_with_kill_switch(self, active: bool) -> LiveExecutionSafetyGuard:
+        from trading_engine.risk.kill_switch import KillSwitch
+
+        class _S:
+            live_trading_enabled = True
+
+        ks = KillSwitch()
+        if active:
+            ks.activate("test: kill switch active")
+        return LiveExecutionSafetyGuard(_S(), kill_switch=ks)
+
+    def test_active_kill_switch_raises_safety_error(self):
+        guard = self._guard_with_kill_switch(True)
+        with pytest.raises(SafetyError, match="[Kk]ill switch"):
+            guard.assert_pilot_order_allowed(
+                order_intent=_intent(),
+                config=_enabled_config(),
+                approval_decision=_approved_decision(),
+                risk_decision=None,
+            )
+
+    def test_active_kill_switch_no_kite_call(self):
+        kite = _FakeKite()
+        from trading_engine.broker.zerodha.client import ZerodhaBroker
+
+        broker = ZerodhaBroker(kite_client=kite)
+        broker.connect()
+        guard = self._guard_with_kill_switch(True)
+        with pytest.raises(SafetyError):
+            broker.place_order(
+                order_intent=_intent(),
+                pilot_config=_enabled_config(),
+                approval_decision=_approved_decision(),
+                risk_decision=None,
+                safety_guard=guard,
+            )
+        assert len(kite.calls) == 0
+
+    def test_active_kill_switch_blocks_via_executor(self):
+        kite = _FakeKite()
+        result = LiveOrderPilotExecutor(
+            broker=_connected_broker(kite),
+            pilot_config=_enabled_config(),
+            approval_gate=LiveOrderApprovalGate(mode=ApprovalMode.AUTO_PAPER),
+            safety_guard=self._guard_with_kill_switch(True),
+        ).execute(_intent())
+        assert result.success is False
+        assert len(kite.calls) == 0
+
+    def test_inactive_kill_switch_allows_order(self):
+        kite = _FakeKite()
+        result = LiveOrderPilotExecutor(
+            broker=_connected_broker(kite),
+            pilot_config=_enabled_config(),
+            approval_gate=LiveOrderApprovalGate(mode=ApprovalMode.AUTO_PAPER),
+            safety_guard=self._guard_with_kill_switch(False),
+        ).execute(_intent())
+        assert result.success is True
+        assert len(kite.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# SR-13: Audit attribution records operator_cli for live pilot approvals
+# ---------------------------------------------------------------------------
+
+
+class TestSR13AuditAttributionOperatorCLI:
+    """Live pilot approval gate must record decided_by='operator_cli', not 'auto_paper'."""
+
+    def test_operator_cli_decided_by(self):
+        gate = LiveOrderApprovalGate(mode=ApprovalMode.AUTO_PAPER, decided_by="operator_cli")
+        decision = gate.require_approval(_intent())
+        assert decision.decided_by == "operator_cli"
+
+    def test_operator_cli_reason_mentions_confirmation(self):
+        gate = LiveOrderApprovalGate(mode=ApprovalMode.AUTO_PAPER, decided_by="operator_cli")
+        decision = gate.require_approval(_intent())
+        assert decision.reason is not None
+        assert "confirmation" in decision.reason.lower() or "phrase" in decision.reason.lower()
+
+    def test_default_auto_paper_decided_by(self):
+        """Without decided_by override, gate records 'auto_paper' as before."""
+        gate = LiveOrderApprovalGate(mode=ApprovalMode.AUTO_PAPER)
+        decision = gate.require_approval(_intent())
+        assert decision.decided_by == "auto_paper"
+
+    def test_no_yes_flag_in_cli(self):
+        """--yes bypass flag must not exist in the production pilot script."""
+        import sys
+        from pathlib import Path
+
+        _SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "scripts"
+        if str(_SCRIPTS_DIR) not in sys.path:
+            sys.path.insert(0, str(_SCRIPTS_DIR))
+        import live_order_pilot as _script  # noqa: PLC0415
+        import pytest as _pytest
+
+        with _pytest.raises(SystemExit):
+            _script._parse_args(
+                [
+                    "--symbol",
+                    "RELIANCE",
+                    "--side",
+                    "BUY",
+                    "--quantity",
+                    "1",
+                    "--order-type",
+                    "MARKET",
+                    "--i-understand-this-places-real-orders",
+                    "--yes",
+                ]
+            )

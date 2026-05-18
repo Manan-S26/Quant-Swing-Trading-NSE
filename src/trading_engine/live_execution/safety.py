@@ -105,6 +105,16 @@ class LiveExecutionSafetyGuard:
         Raises:
             SafetyError: if any check fails.
         """
+        # 0. Global live trading flag — must be true before any execution flag
+        live_trading_enabled = getattr(self._settings, "live_trading_enabled", False)
+        if not live_trading_enabled:
+            raise SafetyError(
+                "LIVE_TRADING_ENABLED is False. "
+                "Set LIVE_TRADING_ENABLED=true to enable live order placement. "
+                "This flag must be explicitly set alongside LIVE_ORDER_EXECUTION_ENABLED "
+                "and LIVE_ORDER_PILOT_ENABLED."
+            )
+
         # 1. Master execution flag
         if not config.live_order_execution_enabled:
             raise SafetyError(

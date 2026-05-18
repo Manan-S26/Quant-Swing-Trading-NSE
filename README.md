@@ -585,9 +585,69 @@ python3 -m ruff format --check src tests scripts         # no reformats needed
 
 ---
 
+## Milestone 11: Read-Only Broker Reconciliation
+
+### What was added
+
+- **`src/trading_engine/reconciliation/models.py`** — `ReconciliationDiscrepancy` and `ReconciliationReport` dataclasses with safe `to_dict()` serialisation.
+- **`src/trading_engine/reconciliation/service.py`** — `ReconciliationService`: compares broker-reported order state against the in-memory `OrderLedger` and updates ledger statuses where valid transitions exist.
+- **`src/trading_engine/reconciliation/status.py`** — `StatusPage`: lightweight JSON-serialisable dict aggregating session metrics (orders by status, fills, positions, last reconciliation result).
+
+### What reconciliation checks
+
+| Check | Severity | Action |
+|-------|----------|--------|
+| Ledger order (with broker ID) not returned by broker | HIGH | Record `MISSING_IN_BROKER` discrepancy |
+| Broker order not found in ledger | MEDIUM | Record `UNKNOWN_BROKER_ORDER` discrepancy |
+| Status mismatch — valid state machine transition | LOW | Update ledger, record `STATUS_MISMATCH_UPDATED` |
+| Status mismatch — invalid state machine transition | HIGH | Record `INVALID_TRANSITION`, ledger unchanged |
+| Broker response cannot be parsed | MEDIUM | Record `MAPPING_ERROR` discrepancy |
+
+`ReconciliationReport.success` is `True` when no HIGH-severity discrepancies exist.
+
+### What the status page reports
+
+```python
+from trading_engine.reconciliation.status import StatusPage
+
+page = StatusPage(ledger=ledger, last_reconciliation_report=report)
+print(page.to_dict())
+# {
+#   "orders_by_status": {"RISK_APPROVED": 2, "FILLED": 1},
+#   "total_orders": 3,
+#   "total_fills": 1,
+#   "total_risk_decisions": 3,
+#   "open_positions_count": 2,
+#   "last_reconciliation_timestamp": "2024-01-15T09:30:00",
+#   "last_reconciliation_success": True,
+#   "discrepancy_count": 0
+# }
+```
+
+### Why this matters before live execution
+
+Reconciliation ensures that what the engine believes about its orders matches what the broker actually holds. Without this, stale ledger state could lead to duplicate orders, missed fills, or incorrect risk calculations. The reconciliation service must be clean and reporting zero HIGH-severity discrepancies before live order placement is enabled.
+
+### Confirmation
+
+- Broker state is **never modified** by reconciliation. `place_order`, `modify_order`, and `cancel_order` are never called.
+- `ZerodhaBroker` read methods (`get_orders`, `get_trades`, `get_positions`) are unchanged — backward-compatible.
+- `LIVE_TRADING_ENABLED` remains `false`.
+- Tests use `FakeBroker` with hardcoded raw dicts — no real Zerodha API calls.
+
+### Commands to verify
+
+```bash
+python3 -m pytest -v                     # 834 tests, all pass
+python3 -m ruff check src tests scripts  # no errors
+python3 -m ruff format --check src tests scripts  # no reformats needed
+```
+
+---
+
 ## Next milestone
 
-**Milestone 11: Read-only broker reconciliation**
+**Milestone 12: Dashboard v1**
 
 ---
 

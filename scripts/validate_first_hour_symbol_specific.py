@@ -19,7 +19,7 @@ import math
 import sys
 import time as time_mod
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from datetime import time
+from datetime import date, time
 from decimal import Decimal
 from itertools import product
 from pathlib import Path
@@ -209,6 +209,60 @@ def _derive_config_times(momentum_window_minutes: int, latest_entry_time: time) 
     session_minutes = 9 * 60 + 15 + momentum_window_minutes
     earliest_entry = time(session_minutes // 60, session_minutes % 60)
     return earliest_entry, momentum_window_minutes
+
+
+def _compute_rejection(
+    test_trade_count: int | None,
+    test_net_pnl: float | None,
+    train_net_pnl: float | None,
+) -> str | None:
+    """Return rejection reason string, or None if the combo passes all rules.
+
+    Rules checked in order:
+    1. test_trade_count < 20  — insufficient test data.
+    2. train_net_pnl > 0 and test_net_pnl <= 0  — overfitting signal (train+/test-).
+    3. test_net_pnl <= 0  — not profitable in test period.
+    """
+    tc = test_trade_count or 0
+    if tc < 20:
+        return f"test_trades={tc}<20"
+    test_neg = test_net_pnl is not None and test_net_pnl <= 0
+    train_pos = train_net_pnl is not None and train_net_pnl > 0
+    if test_neg and train_pos:
+        return "train_pos_test_neg"
+    if test_neg:
+        return "test_net<=0"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Date range filtering
+# ---------------------------------------------------------------------------
+
+
+def filter_candles_by_date_range(
+    candle_df: pd.DataFrame,
+    start_date: date | None,
+    end_date: date | None,
+) -> pd.DataFrame:
+    """Return candles where date is in [start_date, end_date] (inclusive).
+
+    If both bounds are None, returns candle_df unchanged.
+    """
+    if start_date is None and end_date is None:
+        return candle_df
+
+    df = candle_df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    d = df["timestamp"].dt.date
+    mask = pd.Series(True, index=df.index)
+    if start_date is not None:
+        mask &= d >= start_date
+    if end_date is not None:
+        mask &= d <= end_date
+    return df[mask].reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -569,6 +623,89 @@ def run_filter_search(
     return results
 
 
+def run_filter_search_split(
+    tasks: list[tuple[str, dict]],
+    candles: dict[str, pd.DataFrame],
+    initial_cash: Decimal,
+    quantity: int,
+    interval: str,
+    train_start: date | None,
+    train_end: date | None,
+    test_start: date | None,
+    test_end: date | None,
+    rvol_lookback_days: int = 20,
+) -> list[dict]:
+    """Run each filter combo on train and test periods separately.
+
+    Each result row contains train_* and test_* prefixed metric columns plus
+    rejection flags.  RVOL pre-filter is applied independently per period
+    (each period computes its own rolling average from the filtered window).
+    """
+    train_raw = {
+        sym: filter_candles_by_date_range(df, train_start, train_end) for sym, df in candles.items()
+    }
+    test_raw = {
+        sym: filter_candles_by_date_range(df, test_start, test_end) for sym, df in candles.items()
+    }
+
+    _metric_keys = (
+        "total_pnl",
+        "gross_pnl",
+        "total_fees",
+        "trade_count",
+        "win_rate",
+        "profit_factor",
+        "avg_gross_pnl",
+        "fees_per_trade",
+    )
+
+    results: list[dict] = []
+    total = len(tasks) * 2
+    done = 0
+    start_time = time_mod.time()
+    print(f"\nStarting {len(tasks)} combos x 2 periods = {total} backtest runs (sequential)...")
+
+    for sym, params in tasks:
+        min_rvol = params.get("min_first_window_rvol")
+        mwm = int(params.get("momentum_window_minutes", 15))
+
+        # ── Train ─────────────────────────────────────────────────────
+        tr = train_raw[sym]
+        if min_rvol is not None:
+            tr = filter_candles_by_rvol(tr, min_rvol, mwm, rvol_lookback_days)
+        train_row = evaluate_task(sym, params, tr, initial_cash, quantity, interval)
+        done += 1
+        _report_progress(done, total, start_time)
+
+        # ── Test ──────────────────────────────────────────────────────
+        te = test_raw[sym]
+        if min_rvol is not None:
+            te = filter_candles_by_rvol(te, min_rvol, mwm, rvol_lookback_days)
+        test_row = evaluate_task(sym, params, te, initial_cash, quantity, interval)
+        done += 1
+        _report_progress(done, total, start_time)
+
+        # ── Merge ─────────────────────────────────────────────────────
+        result = _params_to_row(params)
+        result["symbol"] = sym
+        result["error"] = train_row.get("error") or test_row.get("error")
+        for k in _metric_keys:
+            result[f"train_{k}"] = train_row.get(k)
+            result[f"test_{k}"] = test_row.get(k)
+
+        reject_reason = _compute_rejection(
+            test_row.get("trade_count"),
+            test_row.get("total_pnl"),
+            train_row.get("total_pnl"),
+        )
+        result["rejected"] = reject_reason is not None
+        result["reject_reason"] = reject_reason
+        results.append(result)
+
+    print()
+    return results
+
+
 def _report_progress(done: int, total: int, start_time: float):
     elapsed = time_mod.time() - start_time
     avg = elapsed / done if done > 0 else 0
@@ -701,6 +838,121 @@ def print_filter_search_results(
             )
 
 
+def print_train_test_filter_results(
+    results: list[dict],
+    train_start: date | None = None,
+    train_end: date | None = None,
+    test_start: date | None = None,
+    test_end: date | None = None,
+) -> None:
+    """Print train/test split results: survivors, rejection breakdown, RVOL comparison."""
+    valid = [r for r in results if r.get("error") is None]
+    survivors = [r for r in valid if not r.get("rejected", True)]
+    rejected_list = [r for r in valid if r.get("rejected", True)]
+
+    print(
+        f"\n=== TRAIN/TEST SPLIT ANALYSIS "
+        f"(train={train_start} to {train_end}, test={test_start} to {test_end}) ==="
+    )
+    print(f"Total: {len(valid)} | Survivors: {len(survivors)} | Rejected: {len(rejected_list)}")
+
+    def _n(v, fmt: str = ".1f") -> str:
+        if v is None:
+            return "None"
+        try:
+            return format(float(v), fmt)
+        except (TypeError, ValueError):
+            return str(v)
+
+    def _fmt_row(r: dict) -> str:
+        sym = r.get("symbol", "?")
+        af = r.get("min_first_window_abs_move")
+        ar = r.get("min_opening_range_abs")
+        rv = r.get("min_first_window_rvol")
+        rr = r.get("reject_reason") or "PASS"
+        return (
+            f"  {sym:<10} abs_move={str(af):<5} abs_range={str(ar):<5} rvol={str(rv):<5} | "
+            f"TRAIN net={_n(r.get('train_total_pnl')):<8} "
+            f"gross={_n(r.get('train_gross_pnl')):<8} "
+            f"tc={str(r.get('train_trade_count') or '?'):<4} "
+            f"PF={_n(r.get('train_profit_factor'), '.2f'):<6} | "
+            f"TEST net={_n(r.get('test_total_pnl')):<8} "
+            f"gross={_n(r.get('test_gross_pnl')):<8} "
+            f"tc={str(r.get('test_trade_count') or '?'):<4} "
+            f"PF={_n(r.get('test_profit_factor'), '.2f'):<6} | {rr}"
+        )
+
+    if survivors:
+        print("\n=== SURVIVORS (pass all rejection rules) ===")
+        by_test_net = sorted(survivors, key=lambda r: r.get("test_total_pnl") or -1e9, reverse=True)
+        for r in by_test_net:
+            print(_fmt_row(r))
+    else:
+        print("\n=== SURVIVORS: none passed all rejection rules ===")
+
+    # Rejection breakdown by reason
+    print(f"\n=== REJECTION BREAKDOWN ({len(rejected_list)} combos) ===")
+    by_reason: dict[str, int] = {}
+    for r in rejected_list:
+        reason = r.get("reject_reason") or "unknown"
+        bucket = reason if not reason.startswith("test_trades=") else "test_trades<20"
+        by_reason[bucket] = by_reason.get(bucket, 0) + 1
+    for bucket, count in sorted(by_reason.items(), key=lambda kv: -kv[1]):
+        print(f"  {bucket}: {count} combos")
+
+    # RVOL comparison: base filters only (abs_move=None, abs_range=None)
+    symbols_in_results = sorted({r.get("symbol") for r in valid if r.get("symbol")})
+    print("\n=== RVOL COMPARISON (abs_move=None, abs_range=None) ===")
+    for sym in symbols_in_results:
+        printed_header = False
+        for rv in [None, 1.2, 1.5]:
+            matching = [
+                r
+                for r in valid
+                if r.get("symbol") == sym
+                and r.get("min_first_window_rvol") == rv
+                and r.get("min_first_window_abs_move") is None
+                and r.get("min_opening_range_abs") is None
+            ]
+            if matching:
+                if not printed_header:
+                    print(f"\n  {sym}:")
+                    printed_header = True
+                print(_fmt_row(matching[0]))
+
+    # Robustness verdict for ICICIBANK RVOL=1.2
+    if "ICICIBANK" in symbols_in_results:
+        print("\n=== ROBUSTNESS VERDICT: ICICIBANK RVOL=1.2 ===")
+        rvol12 = [
+            r
+            for r in valid
+            if r.get("symbol") == "ICICIBANK"
+            and r.get("min_first_window_rvol") == 1.2
+            and r.get("min_first_window_abs_move") is None
+            and r.get("min_opening_range_abs") is None
+        ]
+        if rvol12:
+            r = rvol12[0]
+            train_net = r.get("train_total_pnl")
+            test_net = r.get("test_total_pnl")
+            test_tc = r.get("test_trade_count") or 0
+            rr = r.get("reject_reason") or "PASS"
+            print(f"  Train net={_n(train_net)}, Test net={_n(test_net)}, Test trades={test_tc}")
+            if not r.get("rejected", True):
+                print("  VERDICT: ROBUST — positive in both train and test periods.")
+            elif rr.startswith("test_trades="):
+                print(
+                    f"  VERDICT: INCONCLUSIVE — too few test trades ({test_tc}); "
+                    "cannot distinguish signal from luck."
+                )
+            elif rr in ("test_net<=0", "train_pos_test_neg"):
+                print("  VERDICT: IN-SAMPLE LUCK — profitable in train but not in test.")
+            else:
+                print(f"  VERDICT: REJECTED ({rr})")
+        else:
+            print("  No data for ICICIBANK RVOL=1.2 (abs_move=None, abs_range=None).")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -718,6 +970,26 @@ def main(argv: list[str] | None = None):
     parser.add_argument("--data-dir", default=str(_DEFAULT_DATA_DIR))
     parser.add_argument("--output-dir", default=str(_DEFAULT_OUTPUT_DIR))
     parser.add_argument("--rvol-lookback-days", type=int, default=20)
+    parser.add_argument(
+        "--train-start",
+        type=date.fromisoformat,
+        default=date(2025, 1, 1),
+    )
+    parser.add_argument(
+        "--train-end",
+        type=date.fromisoformat,
+        default=date(2025, 9, 30),
+    )
+    parser.add_argument(
+        "--test-start",
+        type=date.fromisoformat,
+        default=date(2025, 10, 1),
+    )
+    parser.add_argument(
+        "--test-end",
+        type=date.fromisoformat,
+        default=date(2026, 1, 31),
+    )
 
     args = parser.parse_args(argv)
 
@@ -725,11 +997,15 @@ def main(argv: list[str] | None = None):
     max_combos = args.max_combinations_per_symbol or args.max_combos
 
     if args.fast_filter_search:
-        print("\nFAST-FILTER-SEARCH MODE: sweeping selectivity filters only")
+        print("\nFAST-FILTER-SEARCH MODE: sweeping selectivity filters with train/test split")
         symbols = args.symbols if args.symbols else _FAST_SYMBOLS
         max_combos_fs = max_combos or 48
 
         print(f"Symbols: {symbols}")
+        print(
+            f"Train: {args.train_start} to {args.train_end} | "
+            f"Test: {args.test_start} to {args.test_end}"
+        )
         data_dir = Path(args.data_dir)
         candles = load_all_candles(symbols, data_dir, _DEFAULT_INTERVAL)
         if not candles:
@@ -739,17 +1015,31 @@ def main(argv: list[str] | None = None):
         symbols = [s for s in symbols if s in candles]
         tasks = build_filter_search_tasks(symbols, max_combos_fs)
 
-        results = run_filter_search(
+        split_results = run_filter_search_split(
             tasks,
             candles,
             _DEFAULT_INITIAL_CASH,
             _DEFAULT_QUANTITY,
             _DEFAULT_INTERVAL,
-            args.rvol_lookback_days,
+            train_start=args.train_start,
+            train_end=args.train_end,
+            test_start=args.test_start,
+            test_end=args.test_end,
+            rvol_lookback_days=args.rvol_lookback_days,
         )
 
-        print_filter_search_results(results, _FAST_FILTER_BASELINE)
-        save_final(results, Path(args.output_dir), prefix="first_hour_filter_search")
+        print_train_test_filter_results(
+            split_results,
+            train_start=args.train_start,
+            train_end=args.train_end,
+            test_start=args.test_start,
+            test_end=args.test_end,
+        )
+        save_final(
+            split_results,
+            Path(args.output_dir),
+            prefix="first_hour_filter_search_split",
+        )
         return
 
     symbols = args.symbols if args.symbols else _ALL_SYMBOLS

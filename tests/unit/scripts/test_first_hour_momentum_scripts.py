@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import time
+from datetime import date, time
 from decimal import Decimal
 from pathlib import Path
 
@@ -822,3 +822,242 @@ class TestNoLiveTradingImports:
         src = script.read_text()
         assert "place_order" not in src
         assert "kite.order_place" not in src
+
+
+# ---------------------------------------------------------------------------
+# Helpers for train/test split tests
+# ---------------------------------------------------------------------------
+
+
+def _make_date_candles(n_days: int = 5) -> pd.DataFrame:
+    """One bar per day at 09:15 for 2024-01-01 through 2024-01-{n_days}."""
+    rows = []
+    for d in range(1, n_days + 1):
+        rows.append(
+            {
+                "timestamp": pd.Timestamp(f"2024-01-{d:02d} 09:15:00"),
+                "volume": 1000,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _make_two_period_candles() -> pd.DataFrame:
+    """Two complete trading days (2024-01-15 train, 2024-01-16 test).
+
+    Each day: 5 narrow window bars + entry bar (close>fw_close) + square-off bar.
+    Configuration: momentum_window=5, min_return=100bps, stop=100bps, no VWAP filter.
+    window bars: high=c+0.1, low=c-0.1 → opening_range ≈ 220bps < 250bps default.
+    Entry: close=102.5 > fw_close=102 → BUY; exit at 15:15 at close=108.
+    """
+    rows = []
+    for day_str in ["2024-01-15", "2024-01-16"]:
+        for i in range(5):
+            c = 100.0 + i * 0.5
+            rows.append(
+                {
+                    "timestamp": pd.Timestamp(f"{day_str} 09:{15 + i:02d}:00"),
+                    "open": c,
+                    "high": c + 0.1,
+                    "low": c - 0.1,
+                    "close": c,
+                    "volume": 1000,
+                }
+            )
+        rows.append(
+            {
+                "timestamp": pd.Timestamp(f"{day_str} 09:20:00"),
+                "open": 102.0,
+                "high": 103.5,
+                "low": 101.5,
+                "close": 102.5,
+                "volume": 1000,
+            }
+        )
+        rows.append(
+            {
+                "timestamp": pd.Timestamp(f"{day_str} 15:15:00"),
+                "open": 107.0,
+                "high": 109.0,
+                "low": 106.0,
+                "close": 108.0,
+                "volume": 1000,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _split_params() -> dict:
+    return {
+        "momentum_window_minutes": 5,
+        "min_first_window_return_bps": 100.0,
+        "latest_entry_time": time(12, 0),
+        "stop_loss_bps": 100.0,
+        "target_bps": None,
+        "allow_shorts": False,
+        "max_trades_per_symbol_per_day": 1,
+        "min_first_window_abs_move": None,
+        "min_opening_range_abs": None,
+        "min_first_window_rvol": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tests: filter_candles_by_date_range
+# ---------------------------------------------------------------------------
+
+
+class TestFilterCandlesByDateRange:
+    def test_returns_all_when_both_none(self):
+        from validate_first_hour_symbol_specific import filter_candles_by_date_range
+
+        df = _make_date_candles(5)
+        result = filter_candles_by_date_range(df, None, None)
+        assert len(result) == len(df)
+
+    def test_start_is_inclusive(self):
+        from datetime import date
+
+        from validate_first_hour_symbol_specific import filter_candles_by_date_range
+
+        df = _make_date_candles(5)
+        result = filter_candles_by_date_range(df, date(2024, 1, 3), None)
+        assert len(result) == 3  # days 3, 4, 5
+
+    def test_end_is_inclusive(self):
+        from datetime import date
+
+        from validate_first_hour_symbol_specific import filter_candles_by_date_range
+
+        df = _make_date_candles(5)
+        result = filter_candles_by_date_range(df, None, date(2024, 1, 3))
+        assert len(result) == 3  # days 1, 2, 3
+
+    def test_both_bounds_inclusive(self):
+        from datetime import date
+
+        from validate_first_hour_symbol_specific import filter_candles_by_date_range
+
+        df = _make_date_candles(5)
+        result = filter_candles_by_date_range(df, date(2024, 1, 2), date(2024, 1, 4))
+        assert len(result) == 3  # days 2, 3, 4
+
+    def test_empty_range_returns_empty(self):
+        from datetime import date
+
+        from validate_first_hour_symbol_specific import filter_candles_by_date_range
+
+        df = _make_date_candles(5)
+        result = filter_candles_by_date_range(df, date(2024, 2, 1), date(2024, 2, 28))
+        assert len(result) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: _compute_rejection
+# ---------------------------------------------------------------------------
+
+
+class TestComputeRejection:
+    def test_no_rejection_when_all_pass(self):
+        from validate_first_hour_symbol_specific import _compute_rejection
+
+        assert _compute_rejection(40, 100.0, 50.0) is None
+
+    def test_rejects_low_test_trades(self):
+        from validate_first_hour_symbol_specific import _compute_rejection
+
+        r = _compute_rejection(10, 100.0, 50.0)
+        assert r is not None
+        assert "10" in r
+
+    def test_boundary_20_trades_passes(self):
+        from validate_first_hour_symbol_specific import _compute_rejection
+
+        assert _compute_rejection(20, 100.0, 50.0) is None
+
+    def test_rejects_test_net_zero_train_negative(self):
+        from validate_first_hour_symbol_specific import _compute_rejection
+
+        r = _compute_rejection(40, 0.0, -50.0)
+        assert r == "test_net<=0"
+
+    def test_rejects_test_net_negative_train_negative(self):
+        from validate_first_hour_symbol_specific import _compute_rejection
+
+        r = _compute_rejection(40, -100.0, -50.0)
+        assert r == "test_net<=0"
+
+    def test_train_pos_test_neg_reported_as_overfitting(self):
+        from validate_first_hour_symbol_specific import _compute_rejection
+
+        r = _compute_rejection(40, -100.0, 50.0)
+        assert r == "train_pos_test_neg"
+
+    def test_none_trade_count_treated_as_zero(self):
+        from validate_first_hour_symbol_specific import _compute_rejection
+
+        r = _compute_rejection(None, 100.0, 50.0)
+        assert r is not None  # 0 < 20 → rejected
+
+
+# ---------------------------------------------------------------------------
+# Tests: run_filter_search_split
+# ---------------------------------------------------------------------------
+
+
+class TestRunFilterSearchSplit:
+    _TRAIN = (date(2024, 1, 15), date(2024, 1, 15))
+    _TEST = (date(2024, 1, 16), date(2024, 1, 16))
+
+    def _run(self, tasks=None):
+        from validate_first_hour_symbol_specific import run_filter_search_split
+
+        candles = {"RELIANCE": _make_two_period_candles()}
+        if tasks is None:
+            tasks = [("RELIANCE", _split_params())]
+        return run_filter_search_split(
+            tasks,
+            candles,
+            Decimal("100000"),
+            10,
+            "minute",
+            *self._TRAIN,
+            *self._TEST,
+        )
+
+    def test_returns_one_result_per_task(self):
+        results = self._run()
+        assert len(results) == 1
+
+    def test_result_has_train_columns(self):
+        r = self._run()[0]
+        assert "train_total_pnl" in r
+        assert "train_trade_count" in r
+        assert "train_profit_factor" in r
+
+    def test_result_has_test_columns(self):
+        r = self._run()[0]
+        assert "test_total_pnl" in r
+        assert "test_trade_count" in r
+        assert "test_profit_factor" in r
+
+    def test_rejected_and_reason_keys_present(self):
+        r = self._run()[0]
+        assert "rejected" in r
+        assert "reject_reason" in r
+
+    def test_rejected_when_test_trades_below_20(self):
+        """Single test-day trade → test_trade_count=2 < 20 → rejected."""
+        r = self._run()[0]
+        assert r["rejected"] is True
+        assert r["reject_reason"] is not None
+
+    def test_multiple_tasks_all_returned(self):
+        p1 = {**_split_params(), "stop_loss_bps": 60.0}
+        p2 = {**_split_params(), "stop_loss_bps": 80.0}
+        results = self._run(tasks=[("RELIANCE", p1), ("RELIANCE", p2)])
+        assert len(results) == 2

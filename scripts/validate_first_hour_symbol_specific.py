@@ -356,6 +356,7 @@ def evaluate_task(
     initial_cash: Decimal,
     quantity: int,
     interval: str,
+    slippage_bps: Decimal = Decimal("2"),
 ) -> dict:
     """Run backtest for ONE symbol and ONE config."""
     mwm = int(params.get("momentum_window_minutes", 30))
@@ -396,7 +397,7 @@ def evaluate_task(
 
     strategy = FirstHourMomentumStrategy(config=cfg)
     portfolio = BacktestPortfolio(initial_cash=initial_cash)
-    broker = SimulatedBroker(portfolio, CostModel(), SlippageModel(bps=Decimal("2")))
+    broker = SimulatedBroker(portfolio, CostModel(), SlippageModel(bps=slippage_bps))
     feed = HistoricalDataFeed({symbol: symbol_candles}, interval=interval)
     engine = BacktestEngine(
         strategy=strategy,

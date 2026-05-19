@@ -210,6 +210,64 @@ python3 -m ruff format --check src tests scripts
 
 ---
 
+**Milestone 7 — VWAP Trend Pullback Strategy** (complete)
+
+Added the VWAP Trend Pullback intraday long-only strategy in backtest-only mode.
+No live trading, no broker API calls, no real order placement.
+
+**What VWAP Pullback does:**
+
+The strategy calculates an intraday VWAP (Volume Weighted Average Price) from
+minute bars, resetting at the start of each trading day. It enters LONG when:
+(1) the VWAP slope is positive over the lookback window (uptrend),
+(2) price has pulled back to within tolerance of VWAP,
+(3) a confirmation bar closes above VWAP (or above the prior bar's high).
+Exits on stop-loss, profit target, or square-off time.
+
+**Current assumptions (v1):**
+- Long-only — short side not implemented.
+- MARKET order entry (fills at bar close in the backtester).
+- VWAP = Σ(typical_price × volume) / Σ(volume) where typical_price = (H+L+C)/3.
+- Zero-volume bars use close price with weight 1 to avoid divide-by-zero.
+- Stop/target set in basis points from the fill price.
+- If stop and target both touch in the same bar, stop-loss is assumed (conservative).
+- State resets fully at the start of each new trading day.
+- Multiple symbols maintain fully independent state.
+
+**Key configuration (`VWAPPullbackConfig`):**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `quantity` | 10 | Shares per signal |
+| `vwap_slope_lookback_bars` | 5 | Bars to compare for positive VWAP slope |
+| `min_bars_before_trading` | 15 | Minimum bars seen before first entry |
+| `pullback_tolerance_bps` | 20.0 | How far low may be above VWAP (bps) |
+| `confirmation_mode` | `close_above_prior_high` | Entry confirmation: `close_above_prior_high` or `close_above_vwap` |
+| `stop_loss_bps` | 40.0 | Stop set this many bps below entry |
+| `target_bps` | 80.0 | Target set this many bps above entry |
+| `no_trade_before` | 09:30 | No entries before this time |
+| `no_new_entries_after` | 14:30 | No new entries at or after this time |
+| `square_off_time` | 15:15 | Force-close all positions at this time |
+| `max_trades_per_symbol_per_day` | 1 | Maximum entries per symbol per day |
+| `allow_reentry` | False | Re-enter after exit on same day |
+
+```bash
+# Run VWAP Pullback backtest on local Parquet candle data:
+python3 scripts/run_vwap_backtest.py
+
+# Override symbols, cash, quantity:
+python3 scripts/run_vwap_backtest.py \
+  --symbols RELIANCE TCS INFY \
+  --initial-cash 1000000 \
+  --quantity 20
+
+# Run strategy tests:
+python3 -m pytest tests/unit/strategies/test_vwap_pullback.py \
+                  tests/unit/strategies/test_vwap_pullback_backtest.py -v
+```
+
+---
+
 **Milestone 6 — Opening Range Breakout Strategy** (complete)
 
 Added the first production strategy: Opening Range Breakout (ORB) in backtest-only mode.

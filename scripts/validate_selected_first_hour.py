@@ -252,20 +252,21 @@ def run_extended_validation(
     Returns flat list of result dicts with evidence/stress flags stamped on each row.
     """
     results: list[dict] = []
-    total_runs = len(configs) * len(windows) * len(SLIPPAGE_SCENARIOS)
+    active_configs = [cfg for cfg in configs if cfg["symbol"] in candles]
+    skipped = [cfg for cfg in configs if cfg["symbol"] not in candles]
+    for cfg in skipped:
+        print(f"  WARNING: {cfg['symbol']} not in candles — skipping config {cfg['label']}")
+    total_runs = len(active_configs) * len(windows) * len(SLIPPAGE_SCENARIOS)
     done = 0
     start_time = time_mod.time()
 
     print(
-        f"\nRunning {len(configs)} configs × {len(windows)} windows "
+        f"\nRunning {len(active_configs)} configs × {len(windows)} windows "
         f"× {len(SLIPPAGE_SCENARIOS)} slippage = {total_runs} backtests (sequential)..."
     )
 
-    for cfg in configs:
+    for cfg in active_configs:
         sym = cfg["symbol"]
-        if sym not in candles:
-            print(f"  WARNING: {sym} not in candles — skipping config {cfg['label']}")
-            continue
         candle_df = candles[sym]
 
         for window_label, window_type, start_date, end_date in windows:

@@ -747,3 +747,88 @@ class TestDailyReset:
         infy_state = s._get_state("INFY")
         assert infy_state.in_position is False
         assert infy_state.vwap is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: config validation for new absolute filters
+# ---------------------------------------------------------------------------
+
+
+class TestAbsFilterConfig:
+    def test_min_first_window_abs_move_zero_raises(self):
+        with pytest.raises(ValueError, match="min_first_window_abs_move"):
+            _cfg(min_first_window_abs_move=0.0)
+
+    def test_min_opening_range_abs_zero_raises(self):
+        with pytest.raises(ValueError, match="min_opening_range_abs"):
+            _cfg(min_opening_range_abs=0.0)
+
+    def test_min_first_window_abs_move_none_is_valid(self):
+        cfg = _cfg(min_first_window_abs_move=None)
+        assert cfg.min_first_window_abs_move is None
+
+    def test_min_opening_range_abs_none_is_valid(self):
+        cfg = _cfg(min_opening_range_abs=None)
+        assert cfg.min_opening_range_abs is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: absolute filter behaviour
+# ---------------------------------------------------------------------------
+
+
+class TestAbsFilters:
+    """_feed_window produces: first_window_open=100, first_window_close=104 → abs_move=4.0
+    first_window_high=105, first_window_low=99 → abs_range=6.0
+    """
+
+    def test_min_first_window_abs_move_blocks_small_move(self):
+        """abs_move=4.0 < threshold=5.0 → entry blocked."""
+        s = _strategy(min_first_window_abs_move=5.0)
+        ctx = _ctx()
+        _feed_window(s, ctx)
+        intents = s.on_bar(_bar("2024-01-15 09:20:00", high=106, low=104, close=105), ctx)
+        assert intents == []
+
+    def test_min_first_window_abs_move_allows_sufficient_move(self):
+        """abs_move=4.0 >= threshold=3.0 → entry allowed."""
+        s = _strategy(min_first_window_abs_move=3.0)
+        ctx = _ctx()
+        _feed_window(s, ctx)
+        intents = s.on_bar(_bar("2024-01-15 09:20:00", high=106, low=104, close=105), ctx)
+        assert len(intents) == 1
+        assert intents[0].side == "BUY"
+
+    def test_min_opening_range_abs_blocks_small_range(self):
+        """abs_range=6.0 < threshold=7.0 → entry blocked."""
+        s = _strategy(min_opening_range_abs=7.0)
+        ctx = _ctx()
+        _feed_window(s, ctx)
+        intents = s.on_bar(_bar("2024-01-15 09:20:00", high=106, low=104, close=105), ctx)
+        assert intents == []
+
+    def test_min_opening_range_abs_allows_sufficient_range(self):
+        """abs_range=6.0 >= threshold=5.0 → entry allowed."""
+        s = _strategy(min_opening_range_abs=5.0)
+        ctx = _ctx()
+        _feed_window(s, ctx)
+        intents = s.on_bar(_bar("2024-01-15 09:20:00", high=106, low=104, close=105), ctx)
+        assert len(intents) == 1
+        assert intents[0].side == "BUY"
+
+    def test_abs_filters_none_do_not_block(self):
+        """Default None filters → no additional blocking."""
+        s = _strategy(min_first_window_abs_move=None, min_opening_range_abs=None)
+        ctx = _ctx()
+        _feed_window(s, ctx)
+        intents = s.on_bar(_bar("2024-01-15 09:20:00", high=106, low=104, close=105), ctx)
+        assert len(intents) == 1
+
+    def test_both_abs_filters_must_pass_for_entry(self):
+        """Both filters set: one fails → entry blocked."""
+        # abs_move=4.0 passes (>= 3.0), abs_range=6.0 fails (< 7.0)
+        s = _strategy(min_first_window_abs_move=3.0, min_opening_range_abs=7.0)
+        ctx = _ctx()
+        _feed_window(s, ctx)
+        intents = s.on_bar(_bar("2024-01-15 09:20:00", high=106, low=104, close=105), ctx)
+        assert intents == []

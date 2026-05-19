@@ -100,6 +100,12 @@ class FirstHourMomentumConfig:
         min_first_window_rvol:         Reserved for future use.  If not None, a
                                        warning is logged and the filter is skipped.
         min_first_window_atr_multiple: Reserved for future use.  Same behaviour.
+        min_first_window_abs_move:     If not None, require the absolute price move
+                                       across the first window (|close - open|) to be
+                                       >= this value.  Blocks low-volatility windows.
+        min_opening_range_abs:         If not None, require the absolute opening range
+                                       (first_window_high - first_window_low) to be
+                                       >= this value.  Blocks narrow-range windows.
     """
 
     strategy_id: str = "first_hour_momentum_v1"
@@ -124,6 +130,8 @@ class FirstHourMomentumConfig:
     min_bars_before_signal: int = 30
     min_first_window_rvol: float | None = None
     min_first_window_atr_multiple: float | None = None
+    min_first_window_abs_move: float | None = None
+    min_opening_range_abs: float | None = None
 
     def __post_init__(self) -> None:
         if self.quantity <= 0:
@@ -165,6 +173,15 @@ class FirstHourMomentumConfig:
             )
         if self.target_bps is not None and self.target_bps <= 0:
             raise ValueError(f"target_bps must be positive when set, got {self.target_bps}")
+        if self.min_first_window_abs_move is not None and self.min_first_window_abs_move <= 0:
+            raise ValueError(
+                f"min_first_window_abs_move must be positive when set, "
+                f"got {self.min_first_window_abs_move}"
+            )
+        if self.min_opening_range_abs is not None and self.min_opening_range_abs <= 0:
+            raise ValueError(
+                f"min_opening_range_abs must be positive when set, got {self.min_opening_range_abs}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +433,21 @@ class FirstHourMomentumStrategy(Strategy):
         # Range filter applies to both directions.
         if orb < orb_min or orb > orb_max:
             return None
+
+        # ── Absolute first-window move filter ─────────────────────────
+        if cfg.min_first_window_abs_move is not None:
+            fw_open = state.first_window_open
+            if fw_open is not None:
+                if abs(fw_close - fw_open) < Decimal(str(cfg.min_first_window_abs_move)):
+                    return None
+
+        # ── Absolute opening range filter ─────────────────────────────
+        if cfg.min_opening_range_abs is not None:
+            fw_high = state.first_window_high
+            fw_low = state.first_window_low
+            if fw_high is not None and fw_low is not None:
+                if fw_high - fw_low < Decimal(str(cfg.min_opening_range_abs)):
+                    return None
 
         # ── LONG ──────────────────────────────────────────────────────
         if fwr >= threshold:

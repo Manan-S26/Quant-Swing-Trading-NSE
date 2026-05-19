@@ -559,3 +559,266 @@ class TestNoZerodhaDependency:
         src = inspect.getsource(mod)
         assert "live_execution" not in src
         assert "place_order" not in src
+
+
+# ---------------------------------------------------------------------------
+# Tests: RVOL filter (validate_first_hour_symbol_specific.py)
+# ---------------------------------------------------------------------------
+
+
+class TestRVOLFilter:
+    def _make_vol_candles(
+        self, n_days: int, volume: int = 1000, window_minutes: int = 1
+    ) -> pd.DataFrame:
+        """One bar per day at 09:15 with given volume."""
+        rows = []
+        for d in range(n_days):
+            rows.append(
+                {
+                    "timestamp": pd.Timestamp(f"2024-01-{d + 1:02d} 09:15:00"),
+                    "volume": volume,
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.0,
+                }
+            )
+        return pd.DataFrame(rows)
+
+    def test_insufficient_history_all_pass(self):
+        """< lookback_days prior days → all dates eligible (no crash)."""
+        from validate_first_hour_symbol_specific import compute_rvol_eligible_dates
+
+        df = self._make_vol_candles(n_days=5)
+        eligible = compute_rvol_eligible_dates(df, window_minutes=1, min_rvol=2.0, lookback_days=20)
+        assert len(eligible) == 5
+
+    def test_low_rvol_day_excluded(self):
+        """Day with RVOL < threshold is excluded once enough history exists."""
+        from validate_first_hour_symbol_specific import compute_rvol_eligible_dates
+
+        # 20 normal days (vol=1000), then 1 very-low-volume day (vol=100).
+        rows = []
+        for d in range(20):
+            rows.append(
+                {
+                    "timestamp": pd.Timestamp(f"2024-01-{d + 1:02d} 09:15:00"),
+                    "volume": 1000,
+                }
+            )
+        rows.append({"timestamp": pd.Timestamp("2024-01-21 09:15:00"), "volume": 100})
+        df = pd.DataFrame(rows)
+        # day 21: rvol = 100 / 1000 = 0.1 < 1.2 → excluded
+        eligible = compute_rvol_eligible_dates(df, window_minutes=1, min_rvol=1.2, lookback_days=20)
+        assert len(eligible) == 20  # days 1-20 pass, day 21 does not
+
+    def test_high_rvol_day_included(self):
+        """Day with RVOL >= threshold is included."""
+        from validate_first_hour_symbol_specific import compute_rvol_eligible_dates
+
+        rows = []
+        for d in range(20):
+            rows.append(
+                {
+                    "timestamp": pd.Timestamp(f"2024-01-{d + 1:02d} 09:15:00"),
+                    "volume": 1000,
+                }
+            )
+        rows.append({"timestamp": pd.Timestamp("2024-01-21 09:15:00"), "volume": 5000})
+        df = pd.DataFrame(rows)
+        # day 21: rvol = 5000 / 1000 = 5.0 >= 1.2 → included
+        eligible = compute_rvol_eligible_dates(df, window_minutes=1, min_rvol=1.2, lookback_days=20)
+        assert len(eligible) == 21
+
+    def test_zero_rolling_avg_day_passes(self):
+        """When rolling average volume is 0, RVOL is undefined → day passes."""
+        from validate_first_hour_symbol_specific import compute_rvol_eligible_dates
+
+        rows = []
+        for d in range(20):
+            rows.append(
+                {
+                    "timestamp": pd.Timestamp(f"2024-01-{d + 1:02d} 09:15:00"),
+                    "volume": 0,  # zero volume lookback
+                }
+            )
+        rows.append({"timestamp": pd.Timestamp("2024-01-21 09:15:00"), "volume": 1000})
+        df = pd.DataFrame(rows)
+        eligible = compute_rvol_eligible_dates(df, window_minutes=1, min_rvol=1.2, lookback_days=20)
+        # All 21 pass (days 1-20 insufficient history or zero avg)
+        assert len(eligible) == 21
+
+    def test_filter_candles_by_rvol_returns_unchanged_when_none(self):
+        """min_rvol=None → all candles returned unchanged."""
+        from validate_first_hour_symbol_specific import filter_candles_by_rvol
+
+        df = self._make_vol_candles(n_days=3)
+        result = filter_candles_by_rvol(df, min_rvol=None, window_minutes=1)
+        assert len(result) == len(df)
+
+    def test_filter_candles_by_rvol_removes_low_volume_day(self):
+        """Low-RVOL day is removed from candle DataFrame."""
+        from validate_first_hour_symbol_specific import filter_candles_by_rvol
+
+        rows = []
+        for d in range(20):
+            rows.append(
+                {
+                    "timestamp": pd.Timestamp(f"2024-01-{d + 1:02d} 09:15:00"),
+                    "volume": 1000,
+                    "open": 100.0,
+                    "high": 101.0,
+                    "low": 99.0,
+                    "close": 100.0,
+                }
+            )
+        rows.append(
+            {
+                "timestamp": pd.Timestamp("2024-01-21 09:15:00"),
+                "volume": 10,  # very low: rvol = 0.01 < 1.2
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.0,
+            }
+        )
+        df = pd.DataFrame(rows)
+        result = filter_candles_by_rvol(df, min_rvol=1.2, window_minutes=1, lookback_days=20)
+        # Day 21 should be removed (only 20 days remain)
+        dates = result["timestamp"].dt.date.unique()
+        assert len(dates) == 20
+
+
+# ---------------------------------------------------------------------------
+# Tests: fast-filter-search grid and evaluate_task columns
+# ---------------------------------------------------------------------------
+
+
+class TestFastFilterSearch:
+    def _vs_params(self) -> dict:
+        return {
+            "momentum_window_minutes": 5,
+            "min_first_window_return_bps": 100.0,
+            "latest_entry_time": time(12, 0),
+            "stop_loss_bps": 100.0,
+            "target_bps": None,
+            "allow_shorts": False,
+            "max_trades_per_symbol_per_day": 1,
+            "min_first_window_abs_move": None,
+            "min_opening_range_abs": None,
+            "min_first_window_rvol": None,
+        }
+
+    def test_filter_search_grid_max_48_combos(self):
+        from itertools import product as iproduct
+
+        from validate_first_hour_symbol_specific import FILTER_SEARCH_GRID
+
+        combos = list(iproduct(*FILTER_SEARCH_GRID.values()))
+        assert len(combos) <= 48
+
+    def test_filter_search_grid_keys_disjoint_from_base_params(self):
+        from validate_first_hour_symbol_specific import (
+            FILTER_SEARCH_BASE_PARAMS,
+            FILTER_SEARCH_GRID,
+        )
+
+        assert set(FILTER_SEARCH_GRID.keys()).isdisjoint(set(FILTER_SEARCH_BASE_PARAMS.keys()))
+
+    def test_evaluate_task_includes_fee_drag_ratio(self):
+        from validate_first_hour_symbol_specific import evaluate_task
+
+        candles = _make_entry_exit_candles()["RELIANCE"]
+        row = evaluate_task("RELIANCE", self._vs_params(), candles, Decimal("100000"), 10, "minute")
+        assert "fee_drag_ratio" in row
+
+    def test_evaluate_task_includes_gross_positive_net_negative(self):
+        from validate_first_hour_symbol_specific import evaluate_task
+
+        candles = _make_entry_exit_candles()["RELIANCE"]
+        row = evaluate_task("RELIANCE", self._vs_params(), candles, Decimal("100000"), 10, "minute")
+        assert "gross_positive_net_negative" in row
+
+    def test_evaluate_task_includes_avg_gross_pnl(self):
+        from validate_first_hour_symbol_specific import evaluate_task
+
+        candles = _make_entry_exit_candles()["RELIANCE"]
+        row = evaluate_task("RELIANCE", self._vs_params(), candles, Decimal("100000"), 10, "minute")
+        assert "avg_gross_pnl" in row
+
+    def test_evaluate_task_includes_fees_per_trade(self):
+        from validate_first_hour_symbol_specific import evaluate_task
+
+        candles = _make_entry_exit_candles()["RELIANCE"]
+        row = evaluate_task("RELIANCE", self._vs_params(), candles, Decimal("100000"), 10, "minute")
+        assert "fees_per_trade" in row
+
+    def test_build_filter_search_tasks_respects_max_combos(self):
+        from validate_first_hour_symbol_specific import build_filter_search_tasks
+
+        tasks = build_filter_search_tasks(["RELIANCE"], max_combos_per_symbol=5)
+        assert len(tasks) == 5
+
+    def test_build_filter_search_tasks_merges_base_params(self):
+        from validate_first_hour_symbol_specific import (
+            FILTER_SEARCH_BASE_PARAMS,
+            build_filter_search_tasks,
+        )
+
+        tasks = build_filter_search_tasks(["RELIANCE"], max_combos_per_symbol=1)
+        _, params = tasks[0]
+        for k, v in FILTER_SEARCH_BASE_PARAMS.items():
+            assert params[k] == v
+
+
+# ---------------------------------------------------------------------------
+# Tests: no live trading imports in validate script and strategy
+# ---------------------------------------------------------------------------
+
+
+class TestNoLiveTradingImports:
+    def _parse_import_modules(self, path: Path) -> list[str]:
+        import ast
+
+        tree = ast.parse(path.read_text())
+        modules: list[str] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    modules.append(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                if node.module:
+                    modules.append(node.module)
+        return modules
+
+    def test_validate_script_no_zerodha(self):
+        script = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "validate_first_hour_symbol_specific.py"
+        )
+        mods = self._parse_import_modules(script)
+        assert not any("zerodha" in m.lower() for m in mods)
+
+    def test_strategy_no_zerodha(self):
+        script = (
+            Path(__file__).resolve().parents[3]
+            / "src"
+            / "trading_engine"
+            / "strategies"
+            / "first_hour_momentum.py"
+        )
+        mods = self._parse_import_modules(script)
+        assert not any("zerodha" in m.lower() for m in mods)
+
+    def test_strategy_no_live_order_placement(self):
+        script = (
+            Path(__file__).resolve().parents[3]
+            / "src"
+            / "trading_engine"
+            / "strategies"
+            / "first_hour_momentum.py"
+        )
+        src = script.read_text()
+        assert "place_order" not in src
+        assert "kite.order_place" not in src

@@ -7,6 +7,8 @@ Usage:
     python3 scripts/validate_first_hour_symbol_specific.py --workers 4
     python3 scripts/validate_first_hour_symbol_specific.py --fast
     python3 scripts/validate_first_hour_symbol_specific.py --sample-months 2025-01 2025-06
+    python3 scripts/validate_first_hour_symbol_specific.py --fast-filter-search
+    python3 scripts/validate_first_hour_symbol_specific.py --fast-filter-search --max-combinations-per-symbol 48
 """
 
 from __future__ import annotations
@@ -71,9 +73,52 @@ PARAM_GRID: dict[str, list] = {
     "max_trades_per_symbol_per_day": [1],
 }
 
+# Fixed base params for fast-filter-search mode (best config found so far).
+FILTER_SEARCH_BASE_PARAMS: dict = {
+    "momentum_window_minutes": 15,
+    "min_first_window_return_bps": 40.0,
+    "latest_entry_time": time(10, 30),
+    "stop_loss_bps": 60.0,
+    "target_bps": None,
+    "allow_shorts": False,
+    "max_trades_per_symbol_per_day": 1,
+}
+
+# Only these filter params are swept in fast-filter-search mode (4*4*3 = 48 combos).
+FILTER_SEARCH_GRID: dict[str, list] = {
+    "min_first_window_abs_move": [None, 1.0, 2.0, 3.0],
+    "min_opening_range_abs": [None, 2.0, 4.0, 6.0],
+    "min_first_window_rvol": [None, 1.2, 1.5],
+}
+
+# Baseline per-symbol metrics from best config (momentum_window=15, return=40bps, sl=60bps).
+_FAST_FILTER_BASELINE: dict[str, dict] = {
+    "ICICIBANK": {
+        "total_pnl": -2269,
+        "gross_pnl": 336,
+        "total_fees": 2605,
+        "profit_factor": 1.17,
+        "trade_count": 100,
+    },
+    "TCS": {
+        "total_pnl": -2315,
+        "gross_pnl": 663,
+        "total_fees": 2979,
+        "profit_factor": 1.13,
+        "trade_count": 100,
+    },
+    "INFY": {
+        "total_pnl": -3800,
+        "gross_pnl": 94,
+        "total_fees": 3874,
+        "profit_factor": 1.02,
+        "trade_count": 146,
+    },
+}
+
 
 # ---------------------------------------------------------------------------
-# Helpers (from sweep script)
+# Helpers
 # ---------------------------------------------------------------------------
 
 
@@ -167,6 +212,85 @@ def _derive_config_times(momentum_window_minutes: int, latest_entry_time: time) 
 
 
 # ---------------------------------------------------------------------------
+# RVOL helpers (research-layer pre-filter, not injected into strategy)
+# ---------------------------------------------------------------------------
+
+
+def compute_rvol_eligible_dates(
+    candle_df: pd.DataFrame,
+    window_minutes: int,
+    min_rvol: float,
+    lookback_days: int = 20,
+) -> set:
+    """Return dates where first-window RVOL >= min_rvol.
+
+    RVOL = current day first-window volume / rolling mean of prior N days.
+    Dates with < lookback_days prior history pass automatically (filter is
+    skipped for those days, not applied pessimistically — no crash).
+    """
+    df = candle_df.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    session_start_min = 9 * 60 + 15  # 09:15
+    df["_time_min"] = df["timestamp"].dt.hour * 60 + df["timestamp"].dt.minute
+    df["_date"] = df["timestamp"].dt.date
+
+    fw_mask = (df["_time_min"] >= session_start_min) & (
+        df["_time_min"] < session_start_min + window_minutes
+    )
+    daily_vol = df[fw_mask].groupby("_date")["volume"].sum().sort_index()
+
+    if daily_vol.empty:
+        return set()
+
+    dates = daily_vol.index.tolist()
+    eligible: set = set()
+    for i, d in enumerate(dates):
+        if i < lookback_days:
+            # Insufficient history — skip filter, always eligible.
+            eligible.add(d)
+            continue
+        rolling_avg = float(daily_vol.iloc[i - lookback_days : i].mean())
+        if rolling_avg == 0:
+            # Cannot compute RVOL — skip filter, always eligible.
+            eligible.add(d)
+            continue
+        rvol = float(daily_vol.iloc[i]) / rolling_avg
+        if rvol >= min_rvol:
+            eligible.add(d)
+
+    return eligible
+
+
+def filter_candles_by_rvol(
+    symbol_candles: pd.DataFrame,
+    min_rvol: float | None,
+    window_minutes: int,
+    lookback_days: int = 20,
+) -> pd.DataFrame:
+    """Filter candle DataFrame to dates that pass the RVOL threshold.
+
+    Returns candles unchanged when min_rvol is None.
+    Dates with insufficient history pass automatically.
+    """
+    if min_rvol is None:
+        return symbol_candles
+
+    eligible_dates = compute_rvol_eligible_dates(
+        symbol_candles, window_minutes, min_rvol, lookback_days
+    )
+
+    df = symbol_candles.copy()
+    if not pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+
+    df["_date"] = df["timestamp"].dt.date
+    filtered = df[df["_date"].isin(eligible_dates)].drop(columns=["_date"])
+    return filtered.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
 # Core Task Logic
 # ---------------------------------------------------------------------------
 
@@ -199,6 +323,17 @@ def evaluate_task(
             ),
             allow_shorts=bool(params.get("allow_shorts", False)),
             max_trades_per_symbol_per_day=int(params.get("max_trades_per_symbol_per_day", 1)),
+            min_first_window_abs_move=(
+                float(params["min_first_window_abs_move"])
+                if params.get("min_first_window_abs_move") is not None
+                else None
+            ),
+            min_opening_range_abs=(
+                float(params["min_opening_range_abs"])
+                if params.get("min_opening_range_abs") is not None
+                else None
+            ),
+            # min_first_window_rvol is handled as a pre-filter on candles, not in the strategy.
         )
     except Exception as exc:
         res = _params_to_row(params)
@@ -226,23 +361,51 @@ def evaluate_task(
     net_pnl = m.total_pnl
     total_fees_val = m.total_fees
     gross_pnl_formula = _safe_float(net_pnl + total_fees_val)
+    net_pnl_float = _safe_float(net_pnl)
+
+    n_trips = tl["round_trips"]
+    avg_gross_pnl: float | None = None
+    fees_per_trade: float | None = None
+    gross_pnl_per_trade: float | None = None
+    fee_drag_ratio: float | None = None
+
+    if n_trips > 0:
+        if tl["gross_pnl"] is not None:
+            avg_gross_pnl = tl["gross_pnl"] / n_trips
+            gross_pnl_per_trade = avg_gross_pnl
+        fees_per_trade = _safe_float(total_fees_val / Decimal(str(n_trips)))
+
+    if gross_pnl_formula is not None and gross_pnl_formula != 0:
+        fee_drag_ratio = _safe_float(float(total_fees_val) / abs(gross_pnl_formula))
+
+    gross_positive_net_negative = bool(
+        gross_pnl_formula is not None
+        and gross_pnl_formula > 0
+        and net_pnl_float is not None
+        and net_pnl_float < 0
+    )
 
     avg_trade_pnl = None
-    if tl["round_trips"] > 0:
-        avg_trade_pnl = _safe_float(net_pnl / Decimal(str(tl["round_trips"])))
+    if n_trips > 0:
+        avg_trade_pnl = _safe_float(net_pnl / Decimal(str(n_trips)))
 
     row = _params_to_row(params)
     row.update(
         {
             "symbol": symbol,
             "error": None,
-            "total_pnl": _safe_float(net_pnl),
+            "total_pnl": net_pnl_float,
             "gross_pnl": gross_pnl_formula,
             "total_fees": _safe_float(total_fees_val),
             "trade_count": m.trade_count,
             "win_rate": tl["win_rate"],
             "profit_factor": tl["profit_factor"],
             "average_trade_pnl": avg_trade_pnl,
+            "avg_gross_pnl": avg_gross_pnl,
+            "fees_per_trade": fees_per_trade,
+            "gross_pnl_per_trade": gross_pnl_per_trade,
+            "fee_drag_ratio": fee_drag_ratio,
+            "gross_positive_net_negative": gross_positive_net_negative,
             "max_drawdown": _safe_float(m.max_drawdown),
         }
     )
@@ -268,6 +431,28 @@ def build_tasks(
     for sym in symbols:
         for combo in combos:
             tasks.append((sym, combo))
+    return tasks
+
+
+def build_filter_search_tasks(
+    symbols: list[str],
+    max_combos_per_symbol: int | None = None,
+) -> list[tuple[str, dict]]:
+    """Build tasks for fast-filter-search mode.
+
+    Base params are fixed to FILTER_SEARCH_BASE_PARAMS.
+    Only filter params in FILTER_SEARCH_GRID are swept.
+    """
+    keys = list(FILTER_SEARCH_GRID.keys())
+    combos = [dict(zip(keys, c, strict=True)) for c in product(*FILTER_SEARCH_GRID.values())]
+    if max_combos_per_symbol and max_combos_per_symbol < len(combos):
+        combos = combos[:max_combos_per_symbol]
+
+    tasks = []
+    for sym in symbols:
+        for combo in combos:
+            params = {**FILTER_SEARCH_BASE_PARAMS, **combo}
+            tasks.append((sym, params))
     return tasks
 
 
@@ -352,6 +537,38 @@ def run_parallel(
     return results
 
 
+def run_filter_search(
+    tasks: list[tuple[str, dict]],
+    candles: dict[str, pd.DataFrame],
+    initial_cash: Decimal,
+    quantity: int,
+    interval: str,
+    rvol_lookback_days: int = 20,
+) -> list[dict]:
+    """Run filter-search tasks sequentially, applying RVOL pre-filter per task."""
+    results = []
+    total = len(tasks)
+    start_time = time_mod.time()
+
+    print(f"\nStarting {total} filter-search tasks (sequential)...")
+
+    for i, (sym, params) in enumerate(tasks, start=1):
+        sym_candles = candles[sym]
+
+        # Apply RVOL pre-filter: filter to days where RVOL >= threshold.
+        min_rvol = params.get("min_first_window_rvol")
+        if min_rvol is not None:
+            mwm = int(params.get("momentum_window_minutes", 15))
+            sym_candles = filter_candles_by_rvol(sym_candles, min_rvol, mwm, rvol_lookback_days)
+
+        row = evaluate_task(sym, params, sym_candles, initial_cash, quantity, interval)
+        results.append(row)
+        _report_progress(i, total, start_time)
+
+    print()  # Final newline
+    return results
+
+
 def _report_progress(done: int, total: int, start_time: float):
     elapsed = time_mod.time() - start_time
     avg = elapsed / done if done > 0 else 0
@@ -364,22 +581,23 @@ def _report_progress(done: int, total: int, start_time: float):
     )
 
 
-def save_final(results: list[dict], output_dir: Path):
+def save_final(
+    results: list[dict],
+    output_dir: Path,
+    prefix: str = "first_hour_symbol_validation",
+) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    # Deterministic sort: symbol, then net_pnl desc, then config keys
-    config_keys = sorted(PARAM_GRID.keys())
 
     def sort_key(r):
         return (
             r.get("symbol", ""),
             -(r.get("total_pnl") if r.get("total_pnl") is not None else -1e9),
-            *[str(r.get(k)) for k in config_keys],
         )
 
     sorted_results = sorted(results, key=sort_key)
 
-    csv_path = output_dir / "first_hour_symbol_validation.csv"
-    json_path = output_dir / "first_hour_symbol_validation.json"
+    csv_path = output_dir / f"{prefix}.csv"
+    json_path = output_dir / f"{prefix}.json"
 
     pd.DataFrame(sorted_results).to_csv(csv_path, index=False)
     with open(json_path, "w") as f:
@@ -388,6 +606,99 @@ def save_final(results: list[dict], output_dir: Path):
     print(f"\nSaved {len(results)} results to:")
     print(f"  {csv_path}")
     print(f"  {json_path}")
+    return csv_path, json_path
+
+
+def print_filter_search_results(
+    results: list[dict],
+    baselines: dict[str, dict] | None = None,
+) -> None:
+    """Print summary tables for filter-search results."""
+    valid = [r for r in results if r.get("error") is None and r.get("total_pnl") is not None]
+
+    if not valid:
+        print("No valid results.")
+        return
+
+    baseline_trades: dict[str, int] = {}
+    if baselines:
+        for sym, bl in baselines.items():
+            baseline_trades[sym] = bl.get("trade_count", 9999)
+
+    def _fmt(r: dict) -> str:
+        sym = r.get("symbol", "?")
+        af = r.get("min_first_window_abs_move")
+        ar = r.get("min_opening_range_abs")
+        rv = r.get("min_first_window_rvol")
+        tc = r.get("trade_count", "?")
+        net = r.get("total_pnl") or 0.0
+        gross = r.get("gross_pnl")
+        fees = r.get("total_fees")
+        fdr = r.get("fee_drag_ratio")
+        gpnn = r.get("gross_positive_net_negative")
+        fdr_str = f"{fdr:.2f}" if fdr is not None else "None"
+        return (
+            f"  {sym:<10} abs_move={str(af):<5} abs_range={str(ar):<5} rvol={str(rv):<5} "
+            f"trades={str(tc):<5} net={net:>9.1f} gross={str(round(gross, 1) if gross else gross):<8} "
+            f"fees={str(round(fees, 1) if fees else fees):<8} fdr={fdr_str:<6} gpnn={gpnn}"
+        )
+
+    def _warn_low_count(r: dict) -> None:
+        tc = r.get("trade_count") or 0
+        if tc < 20:
+            print(f"  *** WARNING: trade_count={tc} < 20 — results unreliable ***")
+
+    print("\n=== TOP 10 BY NET P&L ===")
+    by_net = sorted(valid, key=lambda r: r.get("total_pnl") or -1e9, reverse=True)
+    for r in by_net[:10]:
+        _warn_low_count(r)
+        print(_fmt(r))
+
+    print("\n=== TOP 10 BY GROSS P&L (lower trade count than baseline) ===")
+
+    def _below_baseline_trades(r: dict) -> bool:
+        sym = r.get("symbol", "")
+        bl_tc = baseline_trades.get(sym, 9999)
+        tc = r.get("trade_count") or 9999
+        return tc < bl_tc
+
+    candidates = [r for r in valid if _below_baseline_trades(r)]
+    by_gross = sorted(candidates, key=lambda r: r.get("gross_pnl") or -1e9, reverse=True)
+    if by_gross:
+        for r in by_gross[:10]:
+            _warn_low_count(r)
+            print(_fmt(r))
+    else:
+        print("  (no results with lower trade count than baseline)")
+
+    print("\n=== TOP CONFIGS REDUCING TRADES BY >=40% ===")
+
+    def _trade_reduction_pct(r: dict) -> float:
+        sym = r.get("symbol", "")
+        bl_tc = baseline_trades.get(sym, 0)
+        tc = r.get("trade_count") or 0
+        if bl_tc == 0:
+            return 0.0
+        return (bl_tc - tc) / bl_tc
+
+    reducing = [r for r in valid if _trade_reduction_pct(r) >= 0.40]
+    by_reduction = sorted(reducing, key=lambda r: r.get("gross_pnl") or -1e9, reverse=True)
+    if by_reduction:
+        for r in by_reduction[:15]:
+            red_pct = _trade_reduction_pct(r)
+            _warn_low_count(r)
+            print(f"  [{red_pct:.0%} reduction] {_fmt(r).strip()}")
+    else:
+        print("  (no configs achieved >=40% trade reduction)")
+
+    if baselines:
+        print("\n=== BASELINE COMPARISON ===")
+        for sym, bl in baselines.items():
+            print(
+                f"  {sym}: baseline net={bl.get('total_pnl')}, "
+                f"gross={bl.get('gross_pnl')}, fees={bl.get('total_fees')}, "
+                f"trades={bl.get('trade_count')}"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -399,20 +710,53 @@ def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--fast", action="store_true")
+    parser.add_argument("--fast-filter-search", action="store_true")
     parser.add_argument("--sample-months", nargs="+", default=[])
     parser.add_argument("--symbols", nargs="+")
     parser.add_argument("--max-combos", type=int)
+    parser.add_argument("--max-combinations-per-symbol", type=int)
     parser.add_argument("--data-dir", default=str(_DEFAULT_DATA_DIR))
     parser.add_argument("--output-dir", default=str(_DEFAULT_OUTPUT_DIR))
+    parser.add_argument("--rvol-lookback-days", type=int, default=20)
 
     args = parser.parse_args(argv)
 
+    # --max-combinations-per-symbol takes precedence over --max-combos.
+    max_combos = args.max_combinations_per_symbol or args.max_combos
+
+    if args.fast_filter_search:
+        print("\nFAST-FILTER-SEARCH MODE: sweeping selectivity filters only")
+        symbols = args.symbols if args.symbols else _FAST_SYMBOLS
+        max_combos_fs = max_combos or 48
+
+        print(f"Symbols: {symbols}")
+        data_dir = Path(args.data_dir)
+        candles = load_all_candles(symbols, data_dir, _DEFAULT_INTERVAL)
+        if not candles:
+            print("No data found.")
+            sys.exit(1)
+
+        symbols = [s for s in symbols if s in candles]
+        tasks = build_filter_search_tasks(symbols, max_combos_fs)
+
+        results = run_filter_search(
+            tasks,
+            candles,
+            _DEFAULT_INITIAL_CASH,
+            _DEFAULT_QUANTITY,
+            _DEFAULT_INTERVAL,
+            args.rvol_lookback_days,
+        )
+
+        print_filter_search_results(results, _FAST_FILTER_BASELINE)
+        save_final(results, Path(args.output_dir), prefix="first_hour_filter_search")
+        return
+
     symbols = args.symbols if args.symbols else _ALL_SYMBOLS
-    max_combos = args.max_combos
     if args.fast:
         print("\nFAST MODE: exploratory only")
         symbols = _FAST_SYMBOLS
-        max_combos = 25
+        max_combos = max_combos or 25
 
     print(f"Symbols: {symbols}")
     print(f"Workers: {args.workers}")

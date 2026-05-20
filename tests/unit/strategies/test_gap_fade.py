@@ -303,11 +303,11 @@ class TestEntryLogic:
             _permissive_cfg(fade_trigger_bps=1.0, require_vwap_confirmation=True)
         )
         ctx = _ctx()
-        # Day 1 close=200, day 2 open=99 (huge gap down -> LONG fade qualified)
-        strategy.on_bar(_bar("2024-01-15 09:15:00", close=200.0, volume=10000), ctx)
-        # Day 2 opening bar at 99, but supply a very high close to push VWAP up
+        # Day 1 close=100, day 2 open=99 → gap=-100 bps (within [50,500]) → LONG fade qualified
+        strategy.on_bar(_bar("2024-01-15 09:15:00", close=100.0), ctx)
+        # Day 2 open=99 → gap=-100 bps (within [50,500]), close=200 to push VWAP to ~133
         strategy.on_bar(_bar("2024-01-16 09:15:00", open_=99.0, close=200.0, volume=10000), ctx)
-        # At 09:20: close=99.5 (above trigger 99*1.001=99.099) but VWAP is ~200
+        # At 09:20: close=99.5 >= trigger(99*1.001=99.099) but VWAP≈133 >> close → blocked
         intents = strategy.on_bar(
             _bar("2024-01-16 09:20:00", open_=99.5, high=100.0, low=99.4, close=99.5), ctx
         )

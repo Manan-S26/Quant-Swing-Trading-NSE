@@ -149,7 +149,7 @@ class TestGapFadeBacktest:
         assert report is not None
 
     def test_at_least_two_fills_produced(self):
-        """Fixture produces a short fade entry + square-off exit."""
+        """Fixture produces a long fade entry + square-off exit."""
         df = _make_gap_fade_candles()
         engine = _make_engine({"TEST": df}, config=_test_cfg())
         report = engine.run()

@@ -297,3 +297,112 @@ class TestEntryLogic:
         bar2 = _make_bar(timestamp="2024-01-16 09:30:00", close=101.5)
         intents = strategy.on_bar(bar2, context=None)
         assert intents == []
+
+
+class TestExitLogic:
+    def _strategy_in_long_position(self, entry_price: float = 101.2, **cfg_kwargs) -> tuple:
+        """Returns (strategy, state) with a LONG position open at entry_price."""
+        cfg = _permissive_cfg(continuation_trigger_bps=10.0, **cfg_kwargs)
+        strategy = GapContinuationStrategy(config=cfg)
+        # Day 1
+        strategy.on_bar(_make_bar(timestamp="2024-01-15 09:15:00", close=100.0), context=None)
+        # Day 2 opening bar (gap-up: open=101 → gap=100bps)
+        strategy.on_bar(_make_bar(timestamp="2024-01-16 09:15:00", open_=101.0, close=101.0), context=None)
+        # Entry bar: close=entry_price >= trigger=101.101
+        strategy.on_bar(_make_bar(timestamp="2024-01-16 09:20:00", close=Decimal(str(entry_price))), context=None)
+        state = strategy._states["TEST"]
+        assert state.in_position is True
+        assert state.position_side == "LONG"
+        return strategy, state
+
+    def _strategy_in_short_position(self, entry_price: float = 98.8, **cfg_kwargs) -> tuple:
+        """Returns (strategy, state) with a SHORT position open at entry_price."""
+        cfg = _permissive_cfg(continuation_trigger_bps=10.0, **cfg_kwargs)
+        strategy = GapContinuationStrategy(config=cfg)
+        strategy.on_bar(_make_bar(timestamp="2024-01-15 09:15:00", close=100.0), context=None)
+        # Day 2 opening bar (gap-down: open=99 → gap=-100bps)
+        strategy.on_bar(_make_bar(timestamp="2024-01-16 09:15:00", open_=99.0, close=99.0), context=None)
+        # Entry bar: close=entry_price <= trigger=98.901
+        strategy.on_bar(_make_bar(timestamp="2024-01-16 09:20:00", close=Decimal(str(entry_price))), context=None)
+        state = strategy._states["TEST"]
+        assert state.in_position is True
+        assert state.position_side == "SHORT"
+        return strategy, state
+
+    def test_long_stop_loss_triggers(self):
+        # entry=101.2, stop_loss=200bps → stop=101.2*(1-0.02)=99.176
+        # bar.low=99.0 <= 99.176 → stop hit
+        strategy, state = self._strategy_in_long_position(entry_price=101.2, stop_loss_bps=200.0)
+        bar = _make_bar(timestamp="2024-01-16 09:25:00", open_=101.0, high=101.1, low=99.0, close=99.1)
+        intents = strategy.on_bar(bar, context=None)
+        assert len(intents) == 1
+        assert intents[0].side == "SELL"
+        assert intents[0].reason == "gc_stop_loss"
+
+    def test_short_stop_loss_triggers(self):
+        # entry=98.8, stop_loss=200bps → stop=98.8*(1+0.02)=100.776
+        # bar.high=101.0 >= 100.776 → stop hit
+        strategy, state = self._strategy_in_short_position(entry_price=98.8, stop_loss_bps=200.0)
+        bar = _make_bar(timestamp="2024-01-16 09:25:00", open_=99.0, high=101.0, low=98.5, close=100.0)
+        intents = strategy.on_bar(bar, context=None)
+        assert len(intents) == 1
+        assert intents[0].side == "BUY"
+        assert intents[0].reason == "gc_stop_loss"
+
+    def test_long_target_triggers(self):
+        # entry=101.2, target_bps=100 → target=101.2*(1+0.01)=102.212
+        # bar.high=102.5 >= 102.212 → target hit
+        strategy, state = self._strategy_in_long_position(
+            entry_price=101.2, stop_loss_bps=200.0, target_bps=100.0
+        )
+        bar = _make_bar(timestamp="2024-01-16 09:25:00", open_=101.5, high=102.5, low=101.0, close=102.0)
+        intents = strategy.on_bar(bar, context=None)
+        assert len(intents) == 1
+        assert intents[0].side == "SELL"
+        assert intents[0].reason == "gc_target"
+
+    def test_short_target_triggers(self):
+        # entry=98.8, target_bps=100 → target=98.8*(1-0.01)=97.812
+        # bar.low=97.5 <= 97.812 → target hit
+        strategy, state = self._strategy_in_short_position(
+            entry_price=98.8, stop_loss_bps=200.0, target_bps=100.0
+        )
+        bar = _make_bar(timestamp="2024-01-16 09:25:00", open_=98.5, high=98.9, low=97.5, close=97.8)
+        intents = strategy.on_bar(bar, context=None)
+        assert len(intents) == 1
+        assert intents[0].side == "BUY"
+        assert intents[0].reason == "gc_target"
+
+    def test_no_target_when_target_bps_none(self):
+        # target_bps=None → no target exit; reset stop so it won't trigger
+        strategy, state = self._strategy_in_long_position(
+            entry_price=101.2, stop_loss_bps=200.0, target_bps=None
+        )
+        state.stop_price = Decimal("0.01")
+        bar = _make_bar(timestamp="2024-01-16 09:25:00", open_=101.5, high=200.0, low=101.0, close=150.0)
+        intents = strategy.on_bar(bar, context=None)
+        assert intents == []
+
+    def test_square_off_at_15_15(self):
+        strategy, state = self._strategy_in_long_position(entry_price=101.2, stop_loss_bps=200.0)
+        # stop=99.176; use low=99.5 to avoid triggering stop
+        bar = _make_bar(timestamp="2024-01-16 15:15:00", open_=101.0, high=101.5, low=99.5, close=101.5)
+        intents = strategy.on_bar(bar, context=None)
+        assert len(intents) == 1
+        assert intents[0].reason == "gc_square_off"
+
+    def test_stop_takes_priority_over_target(self):
+        # stop=99.176, target=102.212; bar hits both → stop wins
+        strategy, state = self._strategy_in_long_position(
+            entry_price=101.2, stop_loss_bps=200.0, target_bps=100.0
+        )
+        bar = _make_bar(timestamp="2024-01-16 09:25:00", open_=100.0, high=102.5, low=99.0, close=100.0)
+        intents = strategy.on_bar(bar, context=None)
+        assert intents[0].reason == "gc_stop_loss"
+
+    def test_position_cleared_after_exit(self):
+        strategy, state = self._strategy_in_long_position(entry_price=101.2, stop_loss_bps=200.0)
+        bar = _make_bar(timestamp="2024-01-16 15:15:00", close=101.5)
+        strategy.on_bar(bar, context=None)
+        assert state.in_position is False
+        assert state.position_side == ""

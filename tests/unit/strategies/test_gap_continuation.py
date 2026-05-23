@@ -91,3 +91,71 @@ class TestGapContinuationConfig:
         )
         intents = strategy.on_bar(bar, context=None)
         assert intents == []
+
+
+def _make_bar(
+    symbol: str = "TEST",
+    timestamp: str = "2024-01-15 09:15:00",
+    open_: float = 100.0,
+    high: float = 101.0,
+    low: float = 99.0,
+    close: float = 100.0,
+    volume: int = 5000,
+) -> "Bar":
+    from trading_engine.strategy.signals import Bar
+    return Bar(
+        symbol=symbol,
+        exchange="NSE",
+        timestamp=pd.Timestamp(timestamp),
+        open=Decimal(str(open_)),
+        high=Decimal(str(high)),
+        low=Decimal(str(low)),
+        close=Decimal(str(close)),
+        volume=volume,
+    )
+
+
+def _permissive_cfg(**kwargs) -> GapContinuationConfig:
+    defaults = dict(
+        min_gap_bps=50.0,
+        max_gap_bps=1000.0,
+        continuation_trigger_bps=10.0,
+        stop_loss_bps=200.0,
+        target_bps=None,
+        allow_long_continuations=True,
+        allow_short_continuations=True,
+    )
+    defaults.update(kwargs)
+    return GapContinuationConfig(**defaults)
+
+
+class TestPriorCloseTracking:
+    def test_prior_close_is_none_on_first_day(self):
+        strategy = GapContinuationStrategy(config=_permissive_cfg())
+        bar = _make_bar(timestamp="2024-01-15 09:15:00", close=100.0)
+        strategy.on_bar(bar, context=None)
+        state = strategy._states["TEST"]
+        assert state.prior_close is None
+
+    def test_prior_close_set_after_day_rollover(self):
+        strategy = GapContinuationStrategy(config=_permissive_cfg())
+        # Day 1: close = 107
+        bar1 = _make_bar(timestamp="2024-01-15 09:15:00", close=107.0)
+        strategy.on_bar(bar1, context=None)
+        # Day 2: opening bar triggers reset — prior_close should be 107
+        bar2 = _make_bar(timestamp="2024-01-16 09:15:00", open_=100.0, close=100.0)
+        strategy.on_bar(bar2, context=None)
+        state = strategy._states["TEST"]
+        assert state.prior_close == Decimal("107.0")
+
+    def test_prior_close_updates_each_day(self):
+        strategy = GapContinuationStrategy(config=_permissive_cfg())
+        for close_val, ts in [
+            (100.0, "2024-01-15 09:15:00"),
+            (110.0, "2024-01-16 09:15:00"),
+            (120.0, "2024-01-17 09:15:00"),
+        ]:
+            bar = _make_bar(timestamp=ts, close=close_val)
+            strategy.on_bar(bar, context=None)
+        state = strategy._states["TEST"]
+        assert state.prior_close == Decimal("110.0")

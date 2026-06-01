@@ -1,0 +1,210 @@
+[
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "HDFCBANK",
+    "qty_a": 51,
+    "qty_b": 107,
+    "optimal_params": {
+      "window_size": 90,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 1772.85,
+      "win_rate": 0.3333333333333333,
+      "trade_count": 6
+    }
+  },
+  {
+    "symbol_a": "BPCL",
+    "symbol_b": "SBILIFE",
+    "qty_a": 282,
+    "qty_b": 49,
+    "optimal_params": {
+      "window_size": 30,
+      "entry_z_score": 3.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 4282.53,
+      "win_rate": 1.0,
+      "trade_count": 4
+    }
+  },
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "TATACONSUM",
+    "qty_a": 51,
+    "qty_b": 88,
+    "optimal_params": {
+      "window_size": 180,
+      "entry_z_score": 3.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 38934.14,
+      "win_rate": null,
+      "trade_count": 1
+    }
+  },
+  {
+    "symbol_a": "HDFCBANK",
+    "symbol_b": "HDFCLIFE",
+    "qty_a": 107,
+    "qty_b": 137,
+    "optimal_params": {
+      "window_size": 60,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 21438.94,
+      "win_rate": 1.0,
+      "trade_count": 9
+    }
+  },
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "HDFCLIFE",
+    "qty_a": 51,
+    "qty_b": 137,
+    "optimal_params": {
+      "window_size": 30,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 3521.86,
+      "win_rate": 0.8571428571428571,
+      "trade_count": 14
+    }
+  },
+  {
+    "symbol_a": "BRITANNIA",
+    "symbol_b": "GRASIM",
+    "qty_a": 17,
+    "qty_b": 35,
+    "optimal_params": {
+      "window_size": 90,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 66017.33,
+      "win_rate": 0.75,
+      "trade_count": 9
+    }
+  },
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "WIPRO",
+    "qty_a": 51,
+    "qty_b": 422,
+    "optimal_params": {
+      "window_size": 90,
+      "entry_z_score": 2.5,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 5401.65,
+      "win_rate": 1.0,
+      "trade_count": 2
+    }
+  },
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "KOTAKBANK",
+    "qty_a": 51,
+    "qty_b": 245,
+    "optimal_params": {
+      "window_size": 90,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 6712.49,
+      "win_rate": 1.0,
+      "trade_count": 2
+    }
+  },
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "TCS",
+    "qty_a": 51,
+    "qty_b": 31,
+    "optimal_params": {
+      "window_size": 120,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 3443.9,
+      "win_rate": 1.0,
+      "trade_count": 2
+    }
+  },
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "INFY",
+    "qty_a": 51,
+    "qty_b": 60,
+    "optimal_params": {
+      "window_size": 60,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 28554.75,
+      "win_rate": null,
+      "trade_count": 9
+    }
+  },
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "BRITANNIA",
+    "qty_a": 51,
+    "qty_b": 17,
+    "optimal_params": {
+      "window_size": 30,
+      "entry_z_score": 2.5,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 3031.46,
+      "win_rate": 0.75,
+      "trade_count": 8
+    }
+  },
+  {
+    "symbol_a": "BPCL",
+    "symbol_b": "BHARTIARTL",
+    "qty_a": 282,
+    "qty_b": 50,
+    "optimal_params": {
+      "window_size": 30,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 85141.83,
+      "win_rate": 0.8571428571428571,
+      "trade_count": 15
+    }
+  },
+  {
+    "symbol_a": "BAJAJFINSV",
+    "symbol_b": "BPCL",
+    "qty_a": 51,
+    "qty_b": 282,
+    "optimal_params": {
+      "window_size": 60,
+      "entry_z_score": 2.0,
+      "stop_loss_z_score": 4.0
+    },
+    "backtest_metrics": {
+      "pnl": 91540.14,
+      "win_rate": 1.0,
+      "trade_count": 7
+    }
+  }
+]

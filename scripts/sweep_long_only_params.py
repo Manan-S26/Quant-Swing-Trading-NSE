@@ -33,6 +33,7 @@ PARAM_GRID = {
     "window_size": [30, 60, 90, 120],
     "entry_z_score": [2.0, 2.5, 3.0, 3.5],
     "stop_loss_z_score": [4.0, 5.0, 6.0],
+    "max_hold_days": [15, 30, 45],
 }
 
 # Structurally/Economically Cointegrated Pairs
@@ -88,17 +89,17 @@ def split_train_test(candles: dict[str, pd.DataFrame], split_date: str) -> tuple
         test[sym] = df[df["timestamp"] >= split_ts].copy()
     return train, test
 
-def run_single(candles: dict[str, pd.DataFrame], params: dict, symbols: list[str], qty_a: int, qty_b: int) -> dict:
+def run_single(candles: dict[str, pd.DataFrame], params: dict, symbols: list[str]) -> dict:
     try:
         cfg = LongOnlySwanConfig(
             strategy_id="long_only",
             symbol_a=symbols[0],
             symbol_b=symbols[1],
-            quantity_a=qty_a,
-            quantity_b=qty_b,
+            capital_per_leg=int(INITIAL_CASH),
             window_size=int(params["window_size"]),
             entry_z_score=float(params["entry_z_score"]),
             stop_loss_z_score=float(params["stop_loss_z_score"]),
+            max_hold_days=int(params["max_hold_days"]),
         )
     except ValueError as exc:
         return {"error": str(exc)}
@@ -149,20 +150,14 @@ def run_sweeper():
         if sym_a not in all_candles or sym_b not in all_candles:
             continue
             
-        price_a = all_candles[sym_a]["close"].iloc[-1]
-        price_b = all_candles[sym_b]["close"].iloc[-1]
-        
-        qty_a = max(1, int(100000 / price_a))
-        qty_b = max(1, int(100000 / price_b))
-        
-        print(f"\n[{rank}/{len(SENSIBLE_PAIRS)}] {sym_a} / {sym_b} (Qty A: {qty_a}, Qty B: {qty_b})")
+        print(f"\n[{rank}/{len(SENSIBLE_PAIRS)}] {sym_a} / {sym_b}")
             
         # 1. Train on In-Sample (pre-2025)
         best_pnl = 0
         best_result = None
         
         for i, params in enumerate(combos, 1):
-            row = run_single(train_candles, params, [sym_a, sym_b], qty_a, qty_b)
+            row = run_single(train_candles, params, [sym_a, sym_b])
             if not row.get("error"):
                 pnl = row.get("realized_pnl", 0)
                 trades = row.get("trade_count", 0)
@@ -174,24 +169,23 @@ def run_sweeper():
                     
         if best_result:
             # 2. Test on Out-Of-Sample (2025 onwards)
-            test_row = run_single(test_candles, best_result, [sym_a, sym_b], qty_a, qty_b)
+            test_row = run_single(test_candles, best_result, [sym_a, sym_b])
             test_pnl = test_row.get("realized_pnl", 0)
             test_trades = test_row.get("trade_count", 0)
             
-            print(f"  [Train] PnL: {best_result['realized_pnl']:+.2f} | Trades: {best_result['trade_count']} | Config: w={best_result['window_size']} eZ={best_result['entry_z_score']} sZ={best_result['stop_loss_z_score']}")
-            print(f"  [Test]  PnL: {test_pnl:+.2f} | Trades: {test_trades} | MaxDD: {test_row.get('max_drawdown', 0):.2f}%")
+            print(f"  [Train] PnL: {best_result['realized_pnl']:+.2f} | Trades: {best_result['trade_count']} | Config: w={best_result['window_size']} eZ={best_result['entry_z_score']} sZ={best_result['stop_loss_z_score']} mHD={best_result['max_hold_days']}")
+            print(f"  [Test]  PnL: {test_pnl:+.2f} | Trades: {test_trades} | MaxDD: {test_row.get('max_drawdown', 0)*100:.2f}%")
             
             if test_pnl >= 0:
                 print("  --> Passed Out-Of-Sample! Added to portfolio.")
                 portfolio.append({
                     "symbol_a": sym_a,
                     "symbol_b": sym_b,
-                    "qty_a": qty_a,
-                    "qty_b": qty_b,
                     "optimal_params": {
                         "window_size": best_result["window_size"],
                         "entry_z_score": best_result["entry_z_score"],
                         "stop_loss_z_score": best_result["stop_loss_z_score"],
+                        "max_hold_days": best_result["max_hold_days"],
                     },
                     "train_metrics": best_result,
                     "test_metrics": test_row

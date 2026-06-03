@@ -2,125 +2,97 @@
   {
     "symbol_a": "BAJAJFINSV",
     "symbol_b": "BAJFINANCE",
-    "qty_a": 56,
-    "qty_b": 112,
     "optimal_params": {
       "window_size": 30,
       "entry_z_score": 2.0,
-      "stop_loss_z_score": 4.0
+      "stop_loss_z_score": 4.0,
+      "max_hold_days": 45
     },
     "train_metrics": {
       "window_size": 30,
       "entry_z_score": 2.0,
       "stop_loss_z_score": 4.0,
+      "max_hold_days": 45,
       "error": null,
-      "realized_pnl": 123014.18,
-      "win_rate": 0.7619047619047619,
-      "trade_count": 43,
-      "max_drawdown": 0.4345419743509962
+      "realized_pnl": 159647.31,
+      "win_rate": 0.7391304347826086,
+      "trade_count": 47,
+      "max_drawdown": 0.4580883124421625
     },
     "test_metrics": {
       "window_size": 30,
       "entry_z_score": 2.0,
       "stop_loss_z_score": 4.0,
+      "max_hold_days": 45,
       "error": null,
-      "realized_pnl": 37991.48,
+      "realized_pnl": 35387.71,
       "win_rate": 0.7777777777777778,
       "trade_count": 18,
-      "max_drawdown": 0.4272829385342237
+      "max_drawdown": 0.3974635519692387
     }
   },
   {
     "symbol_a": "ICICIBANK",
     "symbol_b": "AXISBANK",
-    "qty_a": 80,
-    "qty_b": 78,
     "optimal_params": {
       "window_size": 30,
       "entry_z_score": 2.0,
-      "stop_loss_z_score": 4.0
+      "stop_loss_z_score": 4.0,
+      "max_hold_days": 15
     },
     "train_metrics": {
       "window_size": 30,
       "entry_z_score": 2.0,
       "stop_loss_z_score": 4.0,
+      "max_hold_days": 15,
       "error": null,
-      "realized_pnl": 485157.78,
-      "win_rate": 0.9565217391304348,
-      "trade_count": 47,
-      "max_drawdown": 0.2589853494353573
+      "realized_pnl": 844993.57,
+      "win_rate": 0.9666666666666667,
+      "trade_count": 60,
+      "max_drawdown": 0.313386814177658
     },
     "test_metrics": {
       "window_size": 30,
       "entry_z_score": 2.0,
       "stop_loss_z_score": 4.0,
+      "max_hold_days": 15,
       "error": null,
-      "realized_pnl": 46773.4,
-      "win_rate": 0.6,
-      "trade_count": 20,
-      "max_drawdown": 0.2626038689668976
+      "realized_pnl": 66688.8,
+      "win_rate": 0.75,
+      "trade_count": 24,
+      "max_drawdown": 0.31414509168082727
     }
   },
   {
     "symbol_a": "AXISBANK",
     "symbol_b": "KOTAKBANK",
-    "qty_a": 78,
-    "qty_b": 264,
     "optimal_params": {
       "window_size": 30,
       "entry_z_score": 2.0,
-      "stop_loss_z_score": 4.0
+      "stop_loss_z_score": 4.0,
+      "max_hold_days": 30
     },
     "train_metrics": {
       "window_size": 30,
       "entry_z_score": 2.0,
       "stop_loss_z_score": 4.0,
+      "max_hold_days": 30,
       "error": null,
-      "realized_pnl": 76697.52,
-      "win_rate": 0.84,
-      "trade_count": 51,
-      "max_drawdown": 0.3785454420030003
+      "realized_pnl": 92694.78,
+      "win_rate": 0.8888888888888888,
+      "trade_count": 55,
+      "max_drawdown": 0.4140236044687266
     },
     "test_metrics": {
       "window_size": 30,
       "entry_z_score": 2.0,
       "stop_loss_z_score": 4.0,
+      "max_hold_days": 30,
       "error": null,
-      "realized_pnl": 28824.37,
-      "win_rate": 0.625,
+      "realized_pnl": 37936.65,
+      "win_rate": 0.75,
       "trade_count": 17,
-      "max_drawdown": 0.4747791036979582
-    }
-  },
-  {
-    "symbol_a": "RELIANCE",
-    "symbol_b": "ONGC",
-    "qty_a": 75,
-    "qty_b": 378,
-    "optimal_params": {
-      "window_size": 30,
-      "entry_z_score": 2.0,
-      "stop_loss_z_score": 4.0
-    },
-    "train_metrics": {
-      "window_size": 30,
-      "entry_z_score": 2.0,
-      "stop_loss_z_score": 4.0,
-      "error": null,
-      "realized_pnl": 1536344.5,
-      "win_rate": 0.8461538461538461,
-      "trade_count": 53,
-      "max_drawdown": 3.6079729809589303
-    },
-    "test_metrics": {
-      "window_size": 30,
-      "entry_z_score": 2.0,
-      "stop_loss_z_score": 4.0,
-      "error": null,
-      "realized_pnl": 323345.63,
-      "win_rate": 0.875,
-      "trade_count": 16,
-      "max_drawdown": 3.7840316240112304
+      "max_drawdown": 0.40526025245822783
     }
   }
 ]

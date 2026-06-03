@@ -23,18 +23,16 @@ class LongOnlySwanConfig:
     strategy_id: str = "long_only_swan"
     symbol_a: str = "HDFCBANK"
     symbol_b: str = "HDFCLIFE"
-    # Note: Quantity is the number of shares to buy when that specific symbol crashes.
-    # It should be sized independently based on the user's capital limit (e.g. 1 Lakh total cash).
-    quantity_a: int = 100
-    quantity_b: int = 90
+    capital_per_leg: int = 100000
     window_size: int = 120
     entry_z_score: float = 3.5
     exit_z_score: float = 0.0
     stop_loss_z_score: float = 5.0
+    max_hold_days: int = 30
     
     def __post_init__(self) -> None:
-        if self.quantity_a <= 0 or self.quantity_b <= 0:
-            raise ValueError("Quantities must be positive.")
+        if self.capital_per_leg <= 0:
+            raise ValueError("Capital must be positive.")
         if self.window_size <= 1:
             raise ValueError("window_size must be > 1 to calculate standard deviation.")
         if self.entry_z_score <= self.exit_z_score:
@@ -49,6 +47,8 @@ class _PairState:
     last_bar_b: Bar | None = None
     ratio_history: list[float] = field(default_factory=list)
     position: str | None = None  # None, "LONG_A", or "LONG_B"
+    entry_time: datetime | None = None
+    entry_qty: int = 0
 
 class LongOnlySwanStrategy(Strategy):
     """Long-Only Black Swan Trading Strategy."""
@@ -103,35 +103,55 @@ class LongOnlySwanStrategy(Strategy):
             return intents
             
         z_score = (current_ratio - mean_ratio) / stdev_ratio
+        
+        days_held = 0
+        if self._state.entry_time:
+            days_held = (bar.timestamp - self._state.entry_time).days
 
         if self._state.position == "LONG_A":
             if z_score <= -self._config.stop_loss_z_score:
-                intents.append(self._create_intent(self._config.symbol_a, "SELL", self._config.quantity_a, bar.exchange, "long_a_stop_loss"))
-                self._state.position = None
+                intents.append(self._create_intent(self._config.symbol_a, "SELL", self._state.entry_qty, bar.exchange, "long_a_stop_loss"))
+                self._clear_position()
             elif z_score >= -self._config.exit_z_score:
-                intents.append(self._create_intent(self._config.symbol_a, "SELL", self._config.quantity_a, bar.exchange, "long_a_exit"))
-                self._state.position = None
+                intents.append(self._create_intent(self._config.symbol_a, "SELL", self._state.entry_qty, bar.exchange, "long_a_exit"))
+                self._clear_position()
+            elif days_held >= self._config.max_hold_days:
+                intents.append(self._create_intent(self._config.symbol_a, "SELL", self._state.entry_qty, bar.exchange, "long_a_time_exit"))
+                self._clear_position()
                 
         elif self._state.position == "LONG_B":
             if z_score >= self._config.stop_loss_z_score:
-                intents.append(self._create_intent(self._config.symbol_b, "SELL", self._config.quantity_b, bar.exchange, "long_b_stop_loss"))
-                self._state.position = None
+                intents.append(self._create_intent(self._config.symbol_b, "SELL", self._state.entry_qty, bar.exchange, "long_b_stop_loss"))
+                self._clear_position()
             elif z_score <= self._config.exit_z_score:
-                intents.append(self._create_intent(self._config.symbol_b, "SELL", self._config.quantity_b, bar.exchange, "long_b_exit"))
-                self._state.position = None
+                intents.append(self._create_intent(self._config.symbol_b, "SELL", self._state.entry_qty, bar.exchange, "long_b_exit"))
+                self._clear_position()
+            elif days_held >= self._config.max_hold_days:
+                intents.append(self._create_intent(self._config.symbol_b, "SELL", self._state.entry_qty, bar.exchange, "long_b_time_exit"))
+                self._clear_position()
                 
         elif self._state.position is None:
             if z_score <= -self._config.entry_z_score:
-                # Symbol A is unusually cheap relative to B
-                intents.append(self._create_intent(self._config.symbol_a, "BUY", self._config.quantity_a, bar.exchange, "long_a_entry"))
-                self._state.position = "LONG_A"
+                qty = max(1, int(self._config.capital_per_leg / price_a))
+                intents.append(self._create_intent(self._config.symbol_a, "BUY", qty, bar.exchange, "long_a_entry"))
+                self._set_position("LONG_A", bar.timestamp, qty)
                 
             elif z_score >= self._config.entry_z_score:
-                # Symbol B is unusually cheap relative to A
-                intents.append(self._create_intent(self._config.symbol_b, "BUY", self._config.quantity_b, bar.exchange, "long_b_entry"))
-                self._state.position = "LONG_B"
+                qty = max(1, int(self._config.capital_per_leg / price_b))
+                intents.append(self._create_intent(self._config.symbol_b, "BUY", qty, bar.exchange, "long_b_entry"))
+                self._set_position("LONG_B", bar.timestamp, qty)
 
         return intents
+        
+    def _clear_position(self) -> None:
+        self._state.position = None
+        self._state.entry_time = None
+        self._state.entry_qty = 0
+        
+    def _set_position(self, pos: str, dt: datetime, qty: int) -> None:
+        self._state.position = pos
+        self._state.entry_time = dt
+        self._state.entry_qty = qty
 
     def _create_intent(self, symbol: str, side: str, quantity: int, exchange: str, reason: str) -> OrderIntent:
         return OrderIntent(

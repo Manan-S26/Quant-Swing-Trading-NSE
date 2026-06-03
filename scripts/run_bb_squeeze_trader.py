@@ -174,6 +174,10 @@ def run_strategy(df: pd.DataFrame, params: dict) -> dict:
                         "capital_deployed": round(qty * fill_price, 0),
                     }
 
+    last_close = round(float(closes[-1]), 2)
+    unrealised_pnl = round((last_close - entry_price) * qty, 2) if in_position else None
+    days_held = (pd.Timestamp(dates[-1]) - pd.Timestamp(entry_date)).days if in_position and entry_date else None
+
     return {
         "in_position": in_position,
         "signal": today_signal,
@@ -181,8 +185,10 @@ def run_strategy(df: pd.DataFrame, params: dict) -> dict:
         "entry_date": str(pd.Timestamp(entry_date).date()) if in_position and entry_date else None,
         "qty": qty if in_position else 0,
         "stop_price": round(stop_price, 2) if in_position else None,
-        "last_close": round(float(closes[-1]), 2),
+        "last_close": last_close,
         "last_date": str(pd.Timestamp(dates[-1]).date()),
+        "unrealised_pnl": unrealised_pnl,
+        "days_held": days_held,
     }
 
 
@@ -226,6 +232,7 @@ def run_paper_trader(bot_token: str, chat_id: str) -> None:
 
     _log.info(f"Scanning {len(portfolio)} symbols...")
     signals_found = 0
+    open_positions = []
 
     for entry in portfolio:
         symbol = entry["symbol"]
@@ -238,6 +245,10 @@ def run_paper_trader(bot_token: str, chat_id: str) -> None:
 
         state = run_strategy(df, params)
         sig = state["signal"]
+
+        # Collect open positions for daily summary
+        if state["in_position"]:
+            open_positions.append((symbol, state, params))
 
         if sig is None:
             _log.info(f"[{symbol}] No signal today. In position: {state['in_position']}")
@@ -258,6 +269,27 @@ def run_paper_trader(bot_token: str, chat_id: str) -> None:
         notifier.send(msg)
     else:
         _log.info(f"Scan complete. {signals_found} signal(s) sent.")
+
+    # Always send open positions summary
+    if open_positions:
+        lines = ["📊 BB Squeeze — Open Positions\n"]
+        total_unrealised = 0.0
+        for sym, st, p in open_positions:
+            pnl = st["unrealised_pnl"] or 0.0
+            total_unrealised += pnl
+            sign = "+" if pnl >= 0 else ""
+            pct = (pnl / (st["entry_price"] * st["qty"])) * 100 if st["entry_price"] and st["qty"] else 0
+            days_left = p["max_hold_days"] - (st["days_held"] or 0)
+            lines.append(
+                f"  {sym}: {sign}₹{pnl:,.0f} ({pct:+.1f}%) | "
+                f"Entry ₹{st['entry_price']} | "
+                f"Close ₹{st['last_close']} | "
+                f"{days_left}d left"
+            )
+        total_sign = "+" if total_unrealised >= 0 else ""
+        lines.append(f"\nTotal unrealised: {total_sign}₹{total_unrealised:,.0f}")
+        notifier.send("\n".join(lines))
+        _log.info(f"Open positions summary sent: {len(open_positions)} position(s).")
 
 
 if __name__ == "__main__":

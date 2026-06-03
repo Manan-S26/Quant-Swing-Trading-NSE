@@ -1,8 +1,8 @@
-name: Daily Paper Trader (Long-Only)
+name: Daily Paper Trader
 
 on:
   schedule:
-    # 9:45 AM UTC is 3:15 PM IST. Runs Mon-Fri.
+    # 9:45 AM UTC = 3:15 PM IST. Runs Mon-Fri after market close.
     - cron: '45 9 * * 1-5'
   workflow_dispatch: # Allows manual triggering from the GitHub UI
 
@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -26,9 +26,16 @@ jobs:
           pip install pandas yfinance python-dotenv pydantic pydantic-settings numpy sqlalchemy psycopg[binary] pyyaml kiteconnect pyarrow statsmodels
           pip install -e . || true
 
-      - name: Run Paper Trader
+      - name: Run Long-Only Black Swan Trader
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python scripts/run_paper_trader.py
+
+      - name: Run BB Squeeze Swing Trader
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python scripts/run_bb_squeeze_trader.py

@@ -94,8 +94,6 @@ def run_paper_trader(bot_token: str, chat_id: str):
     for pair in portfolio:
         sym_a = pair["symbol_a"]
         sym_b = pair["symbol_b"]
-        qty_a = pair["qty_a"]
-        qty_b = pair["qty_b"]
         params = pair["optimal_params"]
         
         df_a = fetch_yfinance_data(sym_a)
@@ -117,11 +115,11 @@ def run_paper_trader(bot_token: str, chat_id: str):
             strategy_id=f"paper_{sym_a}_{sym_b}",
             symbol_a=sym_a,
             symbol_b=sym_b,
-            quantity_a=qty_a,
-            quantity_b=qty_b,
+            capital_per_leg=100000,
             window_size=params["window_size"],
             entry_z_score=params["entry_z_score"],
             stop_loss_z_score=params["stop_loss_z_score"],
+            max_hold_days=params.get("max_hold_days", 30),
         )
         strategy = LongOnlySwanStrategy(config=cfg)
         

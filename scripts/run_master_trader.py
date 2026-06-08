@@ -67,14 +67,17 @@ def run_master_trader(bot_token: str, chat_id: str):
     total_locked = 0.0
     total_realized = 0.0
     total_unrealized = 0.0
-    
+
     open_positions = []
     new_exits = []
     raw_new_entries = []  # (strategy_name, symbol, entry_dict)
+    fetch_errors = []     # (strategy_name, label, error_msg)
 
     # 1. Process Swan
     for r in swan_results:
-        if r.get("error"): continue
+        if r.get("error"):
+            fetch_errors.append(("Black Swan", r.get("pair", "?"), r["error"]))
+            continue
         total_realized += r["realized_pnl"]
         for t in r["today_closed"]:
             new_exits.append(("Black Swan", r["pair"], t))
@@ -96,7 +99,7 @@ def run_master_trader(bot_token: str, chat_id: str):
         total_realized += st["realized_pnl"]
         for t in st["today_closed"]:
             new_exits.append(("BB Squeeze", sym, t))
-        if st["in_position"] and st["entry_date"] != st["today_date"]: # Don't count today's entries as locked yet
+        if st["in_position"] and st["entry_date"] != st["today_date"]:
             locked = st["entry_price"] * st["qty"]
             total_locked += locked
             total_unrealized += st["unrealized_pnl"]
@@ -118,6 +121,10 @@ def run_master_trader(bot_token: str, chat_id: str):
             raw_new_entries.append(("MA Pullback", sym, st["today_entry"]))
 
     # Dynamic Capital Allocation
+    # If any strategy had a fetch error, capital accounting is untrustworthy.
+    # Block all new entries to protect capital until the error clears.
+    capital_safe = len(fetch_errors) == 0
+
     free_cash = TOTAL_ACCOUNT_CAPITAL - total_locked
     if free_cash < 0:
         free_cash = 0
@@ -126,33 +133,33 @@ def run_master_trader(bot_token: str, chat_id: str):
     rejected_entries = []
 
     if raw_new_entries:
-        if free_cash < MIN_CHUNK_SIZE:
-            # Reject all, no cash
+        if not capital_safe:
+            for strat, sym, e in raw_new_entries:
+                rejected_entries.append((strat, sym, "Blocked — data fetch error (see warnings)"))
+        elif free_cash < MIN_CHUNK_SIZE:
             for strat, sym, e in raw_new_entries:
                 rejected_entries.append((strat, sym, "Insufficient Free Cash"))
         else:
-            # Calculate max slots
-            max_slots = int(free_cash // MIN_CHUNK_SIZE)
-            
-            # Rank signals (for now, simply by strategy precedence: MA > BB > Swan)
+            # Rank: MA Pullback > BB Squeeze > Black Swan
             def strat_score(s):
                 if s[0] == "MA Pullback": return 3
                 if s[0] == "BB Squeeze": return 2
                 return 1
-                
+
             raw_new_entries.sort(key=strat_score, reverse=True)
-            
+
+            max_slots = int(free_cash // MIN_CHUNK_SIZE)
             selected = raw_new_entries[:max_slots]
             rejected = raw_new_entries[max_slots:]
-            
+
             chunk_size = free_cash / len(selected)
-            
+
             for strat, sym, e in selected:
                 new_qty = max(1, int(chunk_size / e["entry_price"]))
                 e["qty"] = new_qty
                 e["capital"] = new_qty * e["entry_price"]
                 approved_entries.append((strat, sym, e))
-                
+
             for strat, sym, e in rejected:
                 rejected_entries.append((strat, sym, "Ranked out (Max slots reached)"))
 
@@ -160,9 +167,15 @@ def run_master_trader(bot_token: str, chat_id: str):
     today = datetime.now().strftime("%d %b %Y")
     lines = [f"👑 MASTER RISK ENGINE — {today}"]
     lines.append("=" * 35)
-    
+
+    # Fetch error warnings at the top — capital may be understated
+    if fetch_errors:
+        lines.append("\n⚠️ DATA FETCH ERRORS — New entries blocked")
+        for strat, label, msg in fetch_errors:
+            lines.append(f"  [{strat}] {label}: {msg}")
+
     # Portfolio Status
-    lines.append(f"💰 Account Limit: ₹{TOTAL_ACCOUNT_CAPITAL:,.0f}")
+    lines.append(f"\n💰 Account Limit: ₹{TOTAL_ACCOUNT_CAPITAL:,.0f}")
     lines.append(f"🔒 Locked Cash  : ₹{total_locked:,.0f}")
     lines.append(f"💸 Free Cash    : ₹{free_cash:,.0f}")
     lines.append("-" * 35)
@@ -175,7 +188,7 @@ def run_master_trader(bot_token: str, chat_id: str):
             lines.append(f"    Allocated: ₹{e['capital']:,.0f}")
             if "stop_loss" in e:
                 lines.append(f"    Stop loss: ₹{e['stop_loss']:,.2f}")
-    
+
     if rejected_entries:
         lines.append("\n🟡 REJECTED ENTRIES (Capital Protection)")
         for strat, sym, reason in rejected_entries:
@@ -202,7 +215,7 @@ def run_master_trader(bot_token: str, chat_id: str):
                 sign = "+" if upnl >= 0 else ""
                 lines.append(f"  [{strat}] {sym}: {st['qty']} shares @ ₹{st['entry_price']:,} -> Unrealised: {sign}₹{upnl:,.0f}")
 
-    if not approved_entries and not new_exits and not open_positions:
+    if not fetch_errors and not approved_entries and not new_exits and not open_positions:
         lines.append("\n💤 No open positions. No signals today.")
 
     lines.append("\n" + "─" * 35)

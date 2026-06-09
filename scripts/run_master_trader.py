@@ -1,7 +1,7 @@
 """Master Portfolio Risk Engine — Unified Daily Digest.
 
-Aggregates all 3 strategies (Long-Only Black Swan, BB Squeeze, MA Pullback).
-Calculates total open capital, remaining free cash, and dynamically
+Aggregates all 4 strategies (Long-Only Black Swan, BB Squeeze, MA Pullback,
+Supertrend). Calculates total open capital, remaining free cash, and dynamically
 sizes new signals based on a 2 Lakh total account limit and 50k floor.
 Sends ONE unified Telegram message.
 """
@@ -21,10 +21,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from trading_engine.notifications.telegram import TelegramNotifier
 
-# Import logic from the 3 standalone scripts
+# Import logic from the 4 standalone scripts
 import run_paper_trader as pt_swan
 import run_bb_squeeze_trader as pt_bb
 import run_ma_pullback_trader as pt_ma
+import run_supertrend_trader as pt_st
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 _log = logging.getLogger(__name__)
@@ -35,6 +36,11 @@ MIN_CHUNK_SIZE = 50_000
 
 def run_master_trader(bot_token: str, chat_id: str):
     notifier = TelegramNotifier(bot_token=bot_token, chat_id=chat_id)
+
+    # Patch Supertrend paper-trading start to replay full history
+    pt_st.PAPER_TRADING_START = "2000-01-01"
+
+    fetch_errors = []     # (strategy_name, label, error_msg)
 
     _log.info("Running Long-Only Black Swan...")
     swan_portfolio = pt_swan.load_portfolio()
@@ -63,6 +69,18 @@ def run_master_trader(bot_token: str, chat_id: str):
             state = pt_ma.replay_symbol(df, entry["optimal_params"])
             ma_states.append((sym, state))
 
+    _log.info("Running Supertrend...")
+    st_portfolio = pt_st.load_portfolio()
+    st_states = []
+    for entry in st_portfolio:
+        sym = entry["symbol"]
+        df = pt_st.fetch_data(sym)
+        if df is None or len(df) < int(entry["optimal_params"]["atr_period"]) + 2:
+            fetch_errors.append(("Supertrend", sym, "Failed to fetch data"))
+            continue
+        state = pt_st.replay_symbol(df, entry["optimal_params"])
+        st_states.append((sym, state))
+
     # Aggregate Open Positions & Capital Locked
     total_locked = 0.0
     total_realized = 0.0
@@ -71,7 +89,6 @@ def run_master_trader(bot_token: str, chat_id: str):
     open_positions = []
     new_exits = []
     raw_new_entries = []  # (strategy_name, symbol, entry_dict)
-    fetch_errors = []     # (strategy_name, label, error_msg)
 
     # 1. Process Swan
     for r in swan_results:
@@ -120,6 +137,19 @@ def run_master_trader(bot_token: str, chat_id: str):
         if st["today_entry"]:
             raw_new_entries.append(("MA Pullback", sym, st["today_entry"]))
 
+    # 4. Process Supertrend
+    for sym, st in st_states:
+        total_realized += st["realized_pnl"]
+        for t in st["today_closed"]:
+            new_exits.append(("Supertrend", sym, t))
+        if st["in_position"] and st["entry_date"] != st["today_date"]:
+            locked = st["entry_price"] * st["qty"]
+            total_locked += locked
+            total_unrealized += st["unrealized_pnl"]
+            open_positions.append(("Supertrend", sym, st))
+        if st["today_entry"]:
+            raw_new_entries.append(("Supertrend", sym, st["today_entry"]))
+
     # Dynamic Capital Allocation
     # If any strategy had a fetch error, capital accounting is untrustworthy.
     # Block all new entries to protect capital until the error clears.
@@ -140,10 +170,10 @@ def run_master_trader(bot_token: str, chat_id: str):
             for strat, sym, e in raw_new_entries:
                 rejected_entries.append((strat, sym, "Insufficient Free Cash"))
         else:
-            # Rank: MA Pullback > BB Squeeze > Black Swan
+            # Rank: MA Pullback > BB Squeeze = Supertrend > Black Swan
             def strat_score(s):
                 if s[0] == "MA Pullback": return 3
-                if s[0] == "BB Squeeze": return 2
+                if s[0] in ("BB Squeeze", "Supertrend"): return 2
                 return 1
 
             raw_new_entries.sort(key=strat_score, reverse=True)

@@ -7,6 +7,7 @@ Sends ONE unified Telegram message.
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -32,10 +33,28 @@ _log = logging.getLogger(__name__)
 
 TOTAL_ACCOUNT_CAPITAL = 2_00_000
 MIN_CHUNK_SIZE = 50_000
+LEDGER_PATH = ROOT / "reports" / "master_position_ledger.json"
+
+
+def load_ledger() -> dict:
+    """Load persisted master position ledger. Keys: 'Strategy/Symbol'."""
+    if LEDGER_PATH.exists():
+        try:
+            return json.loads(LEDGER_PATH.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def save_ledger(ledger: dict) -> None:
+    LEDGER_PATH.write_text(json.dumps(ledger, indent=2))
 
 
 def run_master_trader(bot_token: str, chat_id: str):
     notifier = TelegramNotifier(bot_token=bot_token, chat_id=chat_id)
+
+    # Load master position ledger (persists actual qty allocated by master engine)
+    ledger = load_ledger()
 
     fetch_errors = []     # (strategy_name, label, error_msg)
 
@@ -157,6 +176,43 @@ def run_master_trader(bot_token: str, chat_id: str):
         elif not st["in_position"] and st.get("almost_signal"):
             almost_signals.append(("Supertrend", sym, st["almost_signal"]["reason"]))
 
+    # Correct exit qty/pnl using master ledger, then remove closed positions from ledger
+    corrected_exits = []
+    for strat, sym, t in new_exits:
+        key = f"{strat}/{sym}"
+        if key in ledger:
+            master_qty = ledger[key]["qty"]
+            entry_p = ledger[key]["entry_price"]
+            t = dict(t)  # don't mutate strategy's object
+            t["qty"] = master_qty
+            t["pnl"] = round((t["exit_price"] - entry_p) * master_qty, 2)
+            del ledger[key]
+        corrected_exits.append((strat, sym, t))
+    new_exits = corrected_exits
+
+    # Correct open position qty/unrealized using ledger, recompute locked capital
+    total_locked = 0.0
+    total_unrealized = 0.0
+    corrected_open = []
+    for strat, sym, st in open_positions:
+        key = f"{strat}/{sym}"
+        if key in ledger:
+            master_qty = ledger[key]["qty"]
+            entry_p = ledger[key]["entry_price"]
+            last_c = st.get("last_close") or st.get("current_price") or entry_p
+            st = dict(st)
+            st["qty"] = master_qty
+            st["entry_qty"] = master_qty
+            st["entry_price"] = entry_p
+            st["unrealized_pnl"] = round((last_c - entry_p) * master_qty, 2)
+            total_locked += entry_p * master_qty
+            total_unrealized += st["unrealized_pnl"]
+        else:
+            total_locked += (st.get("entry_price") or 0) * (st.get("qty") or st.get("entry_qty") or 0)
+            total_unrealized += st.get("unrealized_pnl", 0)
+        corrected_open.append((strat, sym, st))
+    open_positions = corrected_open
+
     # Dynamic Capital Allocation
     # If any strategy had a fetch error, capital accounting is untrustworthy.
     # Block all new entries to protect capital until the error clears.
@@ -196,6 +252,11 @@ def run_master_trader(bot_token: str, chat_id: str):
                 e["qty"] = new_qty
                 e["capital"] = new_qty * e["entry_price"]
                 approved_entries.append((strat, sym, e))
+                # Persist to ledger so tomorrow's exits use correct qty
+                ledger[f"{strat}/{sym}"] = {
+                    "qty": new_qty,
+                    "entry_price": e["entry_price"],
+                }
 
             for strat, sym, e in rejected:
                 rejected_entries.append((strat, sym, "Ranked out (Max slots reached)"))
@@ -305,6 +366,9 @@ def run_master_trader(bot_token: str, chat_id: str):
         f"Total       {t_sign}{total:>12,.0f}"
         f"</code>"
     )
+
+    # Persist updated ledger (entries added, exits removed)
+    save_ledger(ledger)
 
     digest = "\n".join(lines)
     _log.info("Sending Master Digest:\n" + digest)

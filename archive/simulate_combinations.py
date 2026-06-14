@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 REPORTS_DIR = ROOT / "reports"
 
 TOTAL_CAPITAL = 2_00_000
-MIN_CHUNK = 50_000
+MIN_CHUNK = 40_000
 CAPITAL_PER_TRADE = 1_00_000  # used in replay functions to compute per-signal qty
 
 
@@ -541,7 +541,7 @@ def collect_all_trades() -> dict[str, list[dict]]:
 # Simulate ₹2L account with Master Risk Engine logic
 # ============================================================
 
-STRAT_PRIORITY = {"MA Pullback": 3, "BB Squeeze": 2, "Supertrend": 2, "Black Swan": 1}
+STRAT_PRIORITY = {"Supertrend": 4, "MA Pullback": 3, "BB Squeeze": 2, "Black Swan": 1}
 
 
 def simulate_combo(strategy_names: list[str], all_trades: dict) -> dict:

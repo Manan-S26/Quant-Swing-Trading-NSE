@@ -112,6 +112,23 @@ def simulate_range(
             key=lambda t: STRAT_PRIORITY.get(t.get("strategy", ""), 0), reverse=True
         )
 
+        # Dedup by symbol — keep highest-priority strategy only
+        seen_syms: set[str] = set()
+        deduped = []
+        for t in signals:
+            sym = t.get("symbol", "")
+            if sym not in seen_syms:
+                seen_syms.add(sym)
+                deduped.append(t)
+        signals = deduped
+
+        # Filter symbols already held
+        held_syms = {slot["trade"].get("symbol", "") for slot in active}
+        signals = [t for t in signals if t.get("symbol", "") not in held_syms]
+
+        if not signals:
+            continue
+
         if free_cash < MIN_CHUNK:
             continue
 

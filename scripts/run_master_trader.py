@@ -36,6 +36,7 @@ _log = logging.getLogger(__name__)
 TOTAL_ACCOUNT_CAPITAL = 2_00_000
 MIN_CHUNK_SIZE = 30_000
 LEDGER_PATH = ROOT / "reports" / "master_position_ledger.json"
+PAPER_TRADING_START = "2026-06-01"  # positions entered before this date are pre-paper-trading history
 
 
 def load_ledger() -> dict:
@@ -177,6 +178,19 @@ def run_master_trader(bot_token: str, chat_id: str):
             raw_new_entries.append(("Supertrend", sym, st["today_entry"]))
         elif not st["in_position"] and st.get("almost_signal"):
             almost_signals.append(("Supertrend", sym, st["almost_signal"]["reason"]))
+
+    # Drop positions entered on/after PAPER_TRADING_START that were never approved by the
+    # master engine (i.e. not in the ledger). These are trades the strategy would have
+    # taken on its own capital assumption but that the master engine would have rejected
+    # due to capital constraints or dedup rules.
+    def _pos_key(strat: str, sym: str) -> str:
+        return f"{strat}/{sym}"
+
+    open_positions = [
+        (strat, sym, st) for strat, sym, st in open_positions
+        if _pos_key(strat, sym) in ledger
+        or st.get("entry_date", "") < PAPER_TRADING_START
+    ]
 
     # Correct exit qty/pnl using master ledger, then remove closed positions from ledger
     corrected_exits = []

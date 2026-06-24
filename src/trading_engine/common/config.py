@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     live_trading_enabled: bool = Field(default=False)
     paper_trading_enabled: bool = Field(default=True)
 
+    # Global kill switch — when True, ALL order placement is blocked regardless of other flags.
+    # Defaults to True (armed). Must be explicitly set to False in .env to disarm.
+    global_kill_switch: bool = Field(default=True)
+
     # Live order execution pilot flags — ALL default to False/disabled
     # These must be explicitly set to True to enable any real order placement.
     live_order_execution_enabled: bool = Field(default=False)

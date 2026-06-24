@@ -26,13 +26,13 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from trading_engine.notifications.telegram import TelegramNotifier
+from constants import PAPER_TRADING_START
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 _log = logging.getLogger(__name__)
 
 REPORTS_DIR = ROOT / "reports"
 CAPITAL_PER_TRADE = 100_000
-PAPER_TRADING_START = "2026-06-01"
 
 
 def load_portfolio() -> list[dict]:
@@ -148,7 +148,7 @@ def replay_symbol(df: pd.DataFrame, params: dict) -> dict:
                 avg_loss = (avg_loss * (rsi_period - 1) + loss) / rsi_period
 
         close_history.append(close_i)
-        if len(close_history) > trend_period + 1:
+        if len(close_history) > max(trend_period, pullback_period) + 1:
             close_history.pop(0)
 
         # Not enough data yet

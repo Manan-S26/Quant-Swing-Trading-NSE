@@ -7,10 +7,12 @@ Sends ONE unified Telegram message.
 """
 
 import argparse
+import html
 import json
 import logging
 import os
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +31,7 @@ import run_ma_pullback_trader as pt_ma
 import run_supertrend_trader as pt_st
 
 from trading_engine.strategy_priority import strategy_score
+from constants import PAPER_TRADING_START
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 _log = logging.getLogger(__name__)
@@ -36,7 +39,6 @@ _log = logging.getLogger(__name__)
 TOTAL_ACCOUNT_CAPITAL = 2_00_000
 MIN_CHUNK_SIZE = 30_000
 LEDGER_PATH = ROOT / "reports" / "master_position_ledger.json"
-PAPER_TRADING_START = "2026-06-01"  # positions entered before this date are pre-paper-trading history
 
 
 def load_ledger() -> dict:
@@ -50,7 +52,10 @@ def load_ledger() -> dict:
 
 
 def save_ledger(ledger: dict) -> None:
-    LEDGER_PATH.write_text(json.dumps(ledger, indent=2))
+    """Atomic write — partial writes never corrupt the ledger."""
+    tmp = LEDGER_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(ledger, indent=2))
+    os.replace(tmp, LEDGER_PATH)
 
 
 def run_master_trader(bot_token: str, chat_id: str):
@@ -74,9 +79,11 @@ def run_master_trader(bot_token: str, chat_id: str):
     for entry in bb_portfolio:
         sym = entry["symbol"]
         df = pt_bb.fetch_data(sym)
-        if df is not None and len(df) >= pt_bb.BB_WINDOW + 2:
-            state = pt_bb.replay_symbol(df, entry["best_params"])
-            bb_states.append((sym, state))
+        if df is None or len(df) < pt_bb.BB_WINDOW + 2:
+            fetch_errors.append(("BB Squeeze", sym, "Failed to fetch data"))
+            continue
+        state = pt_bb.replay_symbol(df, entry["best_params"])
+        bb_states.append((sym, state))
 
     _log.info("Running MA Pullback...")
     ma_portfolio = pt_ma.load_portfolio()
@@ -84,9 +91,11 @@ def run_master_trader(bot_token: str, chat_id: str):
     for entry in ma_portfolio:
         sym = entry["symbol"]
         df = pt_ma.fetch_data(sym)
-        if df is not None and len(df) >= int(entry["optimal_params"]["trend_ma_period"]) + 2:
-            state = pt_ma.replay_symbol(df, entry["optimal_params"])
-            ma_states.append((sym, state))
+        if df is None or len(df) < int(entry["optimal_params"]["trend_ma_period"]) + 2:
+            fetch_errors.append(("MA Pullback", sym, "Failed to fetch data"))
+            continue
+        state = pt_ma.replay_symbol(df, entry["optimal_params"])
+        ma_states.append((sym, state))
 
     _log.info("Running Supertrend...")
     st_portfolio = pt_st.load_portfolio()
@@ -219,6 +228,7 @@ def run_master_trader(bot_token: str, chat_id: str):
     total_unrealized = 0.0
     ledger_unrealized = 0.0   # unrealized P&L for ledger-tracked positions only
     corrected_open = []
+    seen_ledger_keys: set[str] = set()
     for strat, sym, st in open_positions:
         key = f"{strat}/{sym}"
         if key in ledger:
@@ -233,11 +243,25 @@ def run_master_trader(bot_token: str, chat_id: str):
             total_locked += entry_p * master_qty
             total_unrealized += st["unrealized_pnl"]
             ledger_unrealized += st["unrealized_pnl"]
+            seen_ledger_keys.add(key)
         else:
             total_locked += (st.get("entry_price") or 0) * (st.get("qty") or st.get("entry_qty") or 0)
             total_unrealized += st.get("unrealized_pnl", 0)
         corrected_open.append((strat, sym, st))
     open_positions = corrected_open
+
+    # Detect ledger positions that strategy didn't report (data fetch failure, etc.)
+    # These are real positions — still lock their capital and warn the user.
+    orphan_positions = []
+    exits_and_opens_keys = {f"{s}/{sy}" for s, sy, _ in open_positions} | {f"{s}/{sy}" for s, sy, _ in new_exits}
+    for key, entry in ledger.items():
+        if key == "_stats":
+            continue
+        if key not in exits_and_opens_keys:
+            strat_part, sym_part = key.split("/", 1)
+            orphan_positions.append((strat_part, sym_part, entry))
+            total_locked += entry["qty"] * entry["entry_price"]
+            ledger_unrealized += 0  # price unknown — don't guess
 
     # Dynamic Capital Allocation
     # If any strategy had a fetch error, capital accounting is untrustworthy.
@@ -304,6 +328,9 @@ def run_master_trader(bot_token: str, chat_id: str):
                 chunk_size = free_cash / len(selected)
 
                 for strat, sym, e in selected:
+                    if not e.get("entry_price") or e["entry_price"] <= 0:
+                        rejected_entries.append((strat, sym, "Invalid entry price (zero or missing)"))
+                        continue
                     new_qty = max(1, int(chunk_size / e["entry_price"]))
                     e["qty"] = new_qty
                     e["capital"] = new_qty * e["entry_price"]
@@ -340,15 +367,15 @@ def run_master_trader(bot_token: str, chat_id: str):
     if fetch_errors:
         lines.append("\n⚠️ <b>DATA ERRORS — entries blocked</b>")
         for strat, label, msg in fetch_errors:
-            lines.append(f"  [{strat}] {label}: {msg}")
+            lines.append(f"  [{html.escape(strat)}] {html.escape(label)}: {html.escape(msg)}")
 
     # Approved entries
     if approved_entries:
         lines.append("\n🟢 <b>NEW ENTRIES</b>")
         for strat, sym, e in approved_entries:
-            lines.append(f"  <b>{sym}</b>  <i>{strat}</i>")
+            lines.append(f"  <b>{html.escape(sym)}</b>  <i>{html.escape(strat)}</i>")
             if "bought_sym" in e:
-                lines.append(f"  ├ BUY {e['qty']} × {e['bought_sym']} @ ₹{e['entry_price']:,}")
+                lines.append(f"  ├ BUY {e['qty']} × {html.escape(e['bought_sym'])} @ ₹{e['entry_price']:,}")
             else:
                 lines.append(f"  ├ BUY {e['qty']} shares @ ₹{e['entry_price']:,}")
             lines.append(f"  ├ Allocated  ₹{e['capital']:,.0f}")
@@ -359,7 +386,7 @@ def run_master_trader(bot_token: str, chat_id: str):
     if rejected_entries:
         lines.append("\n🟡 <b>REJECTED</b>")
         for strat, sym, reason in rejected_entries:
-            lines.append(f"  {sym} [{strat}] — {reason}")
+            lines.append(f"  {html.escape(sym)} [{html.escape(strat)}] — {html.escape(reason)}")
 
     # Exits
     if new_exits:
@@ -368,10 +395,11 @@ def run_master_trader(bot_token: str, chat_id: str):
             pnl = t["pnl"]
             emoji = "✅" if pnl >= 0 else "❌"
             sign = "+" if pnl >= 0 else ""
-            entry_d = t.get("entry_date", "?")
-            lines.append(f"  {emoji} <b>{sym}</b>  <i>{strat}</i>")
+            entry_d = html.escape(str(t.get("entry_date", "?")))
+            reason = html.escape(str(t.get("reason", "?")))
+            lines.append(f"  {emoji} <b>{html.escape(sym)}</b>  <i>{html.escape(strat)}</i>")
             lines.append(f"  ├ Entered {entry_d}  ·  {t['qty']} shares")
-            lines.append(f"  ├ ₹{t['entry_price']:,} → ₹{t['exit_price']:,}  ({t['reason']})")
+            lines.append(f"  ├ ₹{t['entry_price']:,} → ₹{t['exit_price']:,}  ({reason})")
             lines.append(f"  └ P&L  <b>{sign}₹{pnl:,.0f}</b>")
 
     # Open positions
@@ -383,21 +411,29 @@ def run_master_trader(bot_token: str, chat_id: str):
                 sign = "+" if upnl >= 0 else ""
                 entry_p = st["entry_price"]
                 pct = (upnl / (entry_p * st["entry_qty"])) * 100 if entry_p and st["entry_qty"] else 0
-                lines.append(f"  <b>{sym}</b>  <i>{strat}</i>")
-                lines.append(f"  ├ {st['entry_qty']} shares @ ₹{entry_p:,}  since {st['entry_date']}")
+                lines.append(f"  <b>{html.escape(sym)}</b>  <i>{html.escape(strat)}</i>")
+                lines.append(f"  ├ {st['entry_qty']} shares @ ₹{entry_p:,}  since {html.escape(str(st['entry_date']))}")
                 lines.append(f"  └ Unrealised  <b>{sign}₹{upnl:,.0f}</b> ({pct:+.1f}%)")
             else:
                 upnl = st["unrealized_pnl"]
                 sign = "+" if upnl >= 0 else ""
                 entry_p = st["entry_price"]
                 pct = (upnl / (entry_p * st["qty"])) * 100 if entry_p and st["qty"] else 0
-                lines.append(f"  <b>{sym}</b>  <i>{strat}</i>")
-                lines.append(f"  ├ {st['qty']} shares @ ₹{entry_p:,}  since {st['entry_date']}")
+                lines.append(f"  <b>{html.escape(sym)}</b>  <i>{html.escape(strat)}</i>")
+                lines.append(f"  ├ {st['qty']} shares @ ₹{entry_p:,}  since {html.escape(str(st['entry_date']))}")
                 if st.get("stop_price"):
                     target_str = f"  Target ₹{st['target_price']:,}" if st.get("target_price") else ""
                     lines.append(f"  ├ Stop ₹{st['stop_price']:,}{target_str}")
                 lines.append(f"  ├ Unrealised  <b>{sign}₹{upnl:,.0f}</b> ({pct:+.1f}%)")
                 lines.append(f"  └ Day {st.get('days_held', 0)} of {st.get('days_held', 0) + st.get('days_left', 0)}")
+
+    # Orphan positions — in ledger but strategy data unavailable today
+    if orphan_positions:
+        lines.append("\n⚠️ <b>DATA UNAVAILABLE — POSITIONS STILL HELD</b>")
+        for strat, sym, entry in orphan_positions:
+            lines.append(f"  <b>{sym}</b>  <i>{strat}</i>")
+            lines.append(f"  ├ {entry['qty']} shares @ ₹{entry['entry_price']:,}  (entry price)")
+            lines.append(f"  └ ⚠️ Could not fetch today's price — position still active in ledger")
 
     # Almost signals
     if almost_signals:
@@ -407,7 +443,7 @@ def run_master_trader(bot_token: str, chat_id: str):
             lines.append(f"  <b>{label}</b>  <i>{strat}</i>")
             lines.append(f"  └ {safe_reason}")
 
-    if not fetch_errors and not approved_entries and not new_exits and not open_positions:
+    if not fetch_errors and not approved_entries and not new_exits and not open_positions and not orphan_positions:
         lines.append("\n💤 No positions. No signals today.")
 
     # P&L summary — ledger-tracked values only (master-allocated qty, since paper trading start)

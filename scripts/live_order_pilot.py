@@ -220,10 +220,12 @@ def main(argv: list[str] | None = None) -> int:
     from trading_engine.risk.kill_switch import KillSwitch  # noqa: E402
 
     # In-process kill switch for this single-order pilot session.
-    # It starts inactive. This kill switch lives only for the duration of
-    # this process. A persistent/shared kill switch (file-backed, DB-backed,
-    # or IPC-based) is future hardening and not implemented in this milestone.
+    # Reads GLOBAL_KILL_SWITCH from .env — if True, arms the switch immediately
+    # so no orders can be placed in this session without disarming via .env first.
     kill_switch = KillSwitch()
+    if settings.global_kill_switch:
+        kill_switch.activate()
+        print("🛑 GLOBAL_KILL_SWITCH=true in .env — kill switch is ARMED. Set to false to trade.")
 
     pilot_config = LivePilotConfig.from_settings(settings)
     safety_guard = LiveExecutionSafetyGuard(settings=settings, kill_switch=kill_switch)

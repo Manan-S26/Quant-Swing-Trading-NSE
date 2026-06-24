@@ -25,6 +25,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from trading_engine.notifications.telegram import TelegramNotifier
+from constants import PAPER_TRADING_START
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 _log = logging.getLogger(__name__)
@@ -33,7 +34,6 @@ REPORTS_DIR = ROOT / "reports"
 BB_WINDOW = 20
 BB_STD_MULT = 2.0
 CAPITAL_PER_TRADE = 100_000
-PAPER_TRADING_START = "2026-06-01"  # Only count P&L from this date onwards
 
 
 def load_portfolio() -> list[dict]:

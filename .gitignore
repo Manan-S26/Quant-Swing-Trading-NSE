@@ -29,7 +29,8 @@ env/
 # Data and logs
 /data/
 logs/
-reports/
+reports/*
+!reports/master_position_ledger.json
 paper_reports/
 *.parquet
 *.db

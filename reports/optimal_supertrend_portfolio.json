@@ -1,0 +1,226 @@
+[
+  {
+    "symbol": "RELIANCE",
+    "optimal_params": {
+      "atr_period": 14,
+      "multiplier": 2.0,
+      "stop_loss_pct": 5.0,
+      "max_hold_days": 90,
+      "capital_per_trade": 100000
+    },
+    "train_metrics": {
+      "atr_period": 14,
+      "multiplier": 2.0,
+      "stop_loss_pct": 5.0,
+      "max_hold_days": 90,
+      "error": null,
+      "realized_pnl": 3718294.77,
+      "win_rate": 1.0,
+      "trade_count": 116,
+      "max_drawdown": 0.10690534418658343
+    },
+    "test_metrics": {
+      "atr_period": 14,
+      "multiplier": 2.0,
+      "stop_loss_pct": 5.0,
+      "max_hold_days": 90,
+      "error": null,
+      "realized_pnl": 58481.75,
+      "win_rate": 0.7777777777777778,
+      "trade_count": 18,
+      "max_drawdown": 0.05832980490114795
+    }
+  },
+  {
+    "symbol": "HDFCBANK",
+    "optimal_params": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 60,
+      "capital_per_trade": 100000
+    },
+    "train_metrics": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 60,
+      "error": null,
+      "realized_pnl": 2749222.53,
+      "win_rate": 1.0,
+      "trade_count": 108,
+      "max_drawdown": 0.12125339292714503
+    },
+    "test_metrics": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 60,
+      "error": null,
+      "realized_pnl": 80490.32,
+      "win_rate": 0.8,
+      "trade_count": 20,
+      "max_drawdown": 0.10422639574357176
+    }
+  },
+  {
+    "symbol": "ICICIBANK",
+    "optimal_params": {
+      "atr_period": 7,
+      "multiplier": 2.0,
+      "stop_loss_pct": 5.0,
+      "max_hold_days": 60,
+      "capital_per_trade": 100000
+    },
+    "train_metrics": {
+      "atr_period": 7,
+      "multiplier": 2.0,
+      "stop_loss_pct": 5.0,
+      "max_hold_days": 60,
+      "error": null,
+      "realized_pnl": 2926346.2,
+      "win_rate": 1.0,
+      "trade_count": 116,
+      "max_drawdown": 0.16602952004997287
+    },
+    "test_metrics": {
+      "atr_period": 7,
+      "multiplier": 2.0,
+      "stop_loss_pct": 5.0,
+      "max_hold_days": 60,
+      "error": null,
+      "realized_pnl": 77580.81,
+      "win_rate": 0.9090909090909091,
+      "trade_count": 22,
+      "max_drawdown": 0.09170399222221808
+    }
+  },
+  {
+    "symbol": "LT",
+    "optimal_params": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "capital_per_trade": 100000
+    },
+    "train_metrics": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "error": null,
+      "realized_pnl": 1887285.06,
+      "win_rate": 0.84,
+      "trade_count": 100,
+      "max_drawdown": 0.15322915374506005
+    },
+    "test_metrics": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "error": null,
+      "realized_pnl": 97100.94,
+      "win_rate": 0.875,
+      "trade_count": 16,
+      "max_drawdown": 0.05716359008385215
+    }
+  },
+  {
+    "symbol": "BAJFINANCE",
+    "optimal_params": {
+      "atr_period": 7,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "capital_per_trade": 100000
+    },
+    "train_metrics": {
+      "atr_period": 7,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "error": null,
+      "realized_pnl": 3428609.85,
+      "win_rate": 1.0,
+      "trade_count": 88,
+      "max_drawdown": 0.08247958643199513
+    },
+    "test_metrics": {
+      "atr_period": 7,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "error": null,
+      "realized_pnl": 183664.39,
+      "win_rate": 1.0,
+      "trade_count": 20,
+      "max_drawdown": 0.11976086504738384
+    }
+  },
+  {
+    "symbol": "BHARTIARTL",
+    "optimal_params": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "capital_per_trade": 100000
+    },
+    "train_metrics": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "error": null,
+      "realized_pnl": 1572576.1,
+      "win_rate": 0.813953488372093,
+      "trade_count": 86,
+      "max_drawdown": 0.1397338038355766
+    },
+    "test_metrics": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 90,
+      "error": null,
+      "realized_pnl": 117032.71,
+      "win_rate": 0.9,
+      "trade_count": 20,
+      "max_drawdown": 0.09817673397088808
+    }
+  },
+  {
+    "symbol": "SBIN",
+    "optimal_params": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 30,
+      "capital_per_trade": 100000
+    },
+    "train_metrics": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 30,
+      "error": null,
+      "realized_pnl": 2065782.42,
+      "win_rate": 0.9245283018867925,
+      "trade_count": 106,
+      "max_drawdown": 0.08514588890944674
+    },
+    "test_metrics": {
+      "atr_period": 10,
+      "multiplier": 2.0,
+      "stop_loss_pct": 8.0,
+      "max_hold_days": 30,
+      "error": null,
+      "realized_pnl": 165290.23,
+      "win_rate": 1.0,
+      "trade_count": 19,
+      "max_drawdown": 0.05112440017895521
+    }
+  }
+]

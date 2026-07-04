@@ -31,6 +31,10 @@ env/
 logs/
 reports/*
 !reports/master_position_ledger.json
+!reports/optimal_supertrend_portfolio.json
+!reports/optimal_ma_pullback_portfolio.json
+!reports/optimal_long_only_portfolio.json
+!reports/bb_squeeze_results.json
 paper_reports/
 *.parquet
 *.db

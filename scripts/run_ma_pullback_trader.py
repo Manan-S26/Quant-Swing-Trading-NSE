@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from trading_engine.notifications.telegram import TelegramNotifier
-from constants import PAPER_TRADING_START
+from constants import PAPER_TRADING_START, fetch_ohlcv
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 _log = logging.getLogger(__name__)
@@ -45,25 +45,8 @@ def load_portfolio() -> list[dict]:
         return json.load(f)
 
 
-def fetch_data(symbol: str, retries: int = 3, delay: float = 5.0) -> pd.DataFrame | None:
-    for attempt in range(1, retries + 1):
-        try:
-            df = yf.download(f"{symbol}.NS", period="2y", interval="1d",
-                             progress=False, auto_adjust=True)
-            if df.empty:
-                raise ValueError("Empty dataframe")
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
-            df.columns = [c.lower() for c in df.columns]
-            df.index.name = "timestamp"
-            df = df.reset_index()
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            return df.sort_values("timestamp").reset_index(drop=True).ffill().dropna(subset=["close"])
-        except Exception as exc:
-            _log.warning(f"[{symbol}] Fetch attempt {attempt}/{retries} failed: {exc}")
-            if attempt < retries:
-                time.sleep(delay)
-    return None
+def fetch_data(symbol: str) -> pd.DataFrame | None:
+    return fetch_ohlcv(symbol, period="2y")
 
 
 def replay_symbol(df: pd.DataFrame, params: dict) -> dict:

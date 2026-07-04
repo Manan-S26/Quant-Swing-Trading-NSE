@@ -29,22 +29,6 @@ jobs:
           pip install pandas "yfinance[nospam]" curl_cffi python-dotenv pydantic pydantic-settings numpy sqlalchemy psycopg[binary] pyyaml kiteconnect pyarrow statsmodels
           pip install -e . || true
 
-      - name: Diagnose Data Fetch
-        run: |
-          python - <<'EOF'
-          import yfinance as yf
-          try:
-              import curl_cffi
-              print(f"curl_cffi OK: {curl_cffi.__version__}")
-          except ImportError:
-              print("curl_cffi: NOT INSTALLED")
-          print(f"yfinance: {yf.__version__}")
-          df = yf.download("SBIN.NS", period="5d", interval="1d", progress=False, auto_adjust=True)
-          print(f"SBIN fetch empty: {df.empty}, rows: {len(df)}")
-          if not df.empty:
-              print(df.tail(2).to_string())
-          EOF
-
       - name: Run Master Risk Engine
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

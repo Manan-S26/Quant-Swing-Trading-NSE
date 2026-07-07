@@ -220,7 +220,8 @@ def run_master_trader(bot_token: str, chat_id: str):
             stats = ledger.setdefault("_stats", {"realized_pnl": 0.0})
             stats["realized_pnl"] = round(stats["realized_pnl"] + t["pnl"], 2)
             del ledger[key]
-        corrected_exits.append((strat, sym, t))
+            corrected_exits.append((strat, sym, t))
+        # else: strategy would have exited but master never approved this entry — skip silently
     new_exits = corrected_exits
 
     # Correct open position qty/unrealized using ledger, recompute locked capital

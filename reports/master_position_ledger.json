@@ -1,6 +1,5 @@
 {
-  "Supertrend/SBIN": {
-    "qty": 199,
-    "entry_price": 1002.7
+  "_stats": {
+    "realized_pnl": 2825.8
   }
 }

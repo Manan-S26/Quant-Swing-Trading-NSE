@@ -1,9 +1,13 @@
 {
   "_stats": {
-    "realized_pnl": 8495.8
+    "realized_pnl": -975.2
   },
-  "MA Pullback/BHARTIARTL": {
-    "qty": 105,
-    "entry_price": 1902.1
+  "MA Pullback/BAJFINANCE": {
+    "qty": 94,
+    "entry_price": 1057.0
+  },
+  "Supertrend/ICICIBANK": {
+    "qty": 68,
+    "entry_price": 1454.0
   }
 }

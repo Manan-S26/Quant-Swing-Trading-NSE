@@ -1,13 +1,13 @@
 {
   "_stats": {
-    "realized_pnl": -975.2
+    "realized_pnl": -4688.0
   },
   "MA Pullback/BAJFINANCE": {
     "qty": 94,
     "entry_price": 1057.0
   },
-  "Supertrend/ICICIBANK": {
-    "qty": 68,
-    "entry_price": 1454.0
+  "MA Pullback/ICICIBANK": {
+    "qty": 71,
+    "entry_price": 1399.4
   }
 }

@@ -1,5 +1,21 @@
 {
   "_stats": {
     "realized_pnl": -17195.6
+  },
+  "Supertrend/RELIANCE": {
+    "qty": 41,
+    "entry_price": 1218.0
+  },
+  "Supertrend/ICICIBANK": {
+    "qty": 37,
+    "entry_price": 1342.8
+  },
+  "Supertrend/BHARTIARTL": {
+    "qty": 27,
+    "entry_price": 1810.5
+  },
+  "Black Swan/AXISBANK/KOTAKBANK": {
+    "qty": 40,
+    "entry_price": 1248.0
   }
 }

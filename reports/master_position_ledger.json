@@ -13,5 +13,9 @@
   "Black Swan/AXISBANK/KOTAKBANK": {
     "qty": 40,
     "entry_price": 1248.0
+  },
+  "BB Squeeze/WIPRO": {
+    "qty": 301,
+    "entry_price": 170.92
   }
 }

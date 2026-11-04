@@ -1,6 +1,6 @@
 {
   "_stats": {
-    "realized_pnl": -19298.9
+    "realized_pnl": -12186.27
   },
   "Supertrend/ICICIBANK": {
     "qty": 37,
@@ -14,8 +14,8 @@
     "qty": 40,
     "entry_price": 1248.0
   },
-  "BB Squeeze/WIPRO": {
-    "qty": 301,
-    "entry_price": 170.92
+  "BB Squeeze/HINDALCO": {
+    "qty": 55,
+    "entry_price": 935.8
   }
 }

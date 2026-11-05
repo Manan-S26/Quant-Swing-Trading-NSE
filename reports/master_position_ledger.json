@@ -1,6 +1,6 @@
 {
   "_stats": {
-    "realized_pnl": -12186.27
+    "realized_pnl": -10906.27
   },
   "Supertrend/ICICIBANK": {
     "qty": 37,
@@ -10,12 +10,12 @@
     "qty": 27,
     "entry_price": 1810.5
   },
-  "Black Swan/AXISBANK/KOTAKBANK": {
-    "qty": 40,
-    "entry_price": 1248.0
-  },
   "BB Squeeze/HINDALCO": {
     "qty": 55,
     "entry_price": 935.8
+  },
+  "Black Swan/BAJAJFINSV/BAJFINANCE": {
+    "qty": 27,
+    "entry_price": 1835.0
   }
 }
